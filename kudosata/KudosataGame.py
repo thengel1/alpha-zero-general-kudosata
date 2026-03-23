@@ -37,6 +37,8 @@ class KudosataGame(Game):
             k.Direction.SOUTH: 3
         }
         self.directions = [k.Direction.NORTH, k.Direction.SOUTH, k.Direction.EAST, k.Direction.WEST]
+        self.colors = [k.Color.RED, k.Color.YELLOW]
+        self.types = [k.TriangleType.NORMAL, k.TriangleType.STAR, k.TriangleType.CONNECT_R, k.TriangleType.CONNECT_L]
 
 
     def getEncodedState(self, engine):
@@ -63,8 +65,42 @@ class KudosataGame(Game):
             
         return state
     
-    def getActionIdx(self, triangle_id, triangle_type):
-        pass
+    def encodedBoardToEngine(board):
+        return None
+    
+    def getActionIdx(self, x, y, t_orientation, t_type):
+        board_size = int(self.board_size)
+        n_action_per_square = 16
+        n_action_per_row = board_size * n_action_per_square
+
+        return x * n_action_per_row + y * n_action_per_square + t_type * 4 + t_orientation
+    
+
+    def getActionFromIdx(self, idx):
+        board_size = int(self.board_size)
+        n_action_per_square = 16
+        n_action_per_row = board_size * n_action_per_square
+
+        t_orientation = idx % 4
+        t_type = (idx // 4) % 4
+        y = (idx // n_action_per_square) % board_size
+        x = (idx // n_action_per_row)
+
+        return (x, y, t_orientation, t_type)
+    
+    def getEngineTriangleID(self, x, y, orientation_idx):
+        squareCoord = k.SquareCoord(x, y)
+        direction = self.directions[orientation_idx]
+
+        return k.TriangleID(squareCoord, direction)
+
+    def getEngineAction(self, x, y, orientation_idx, type_idx, player_idx):
+        t_id = self.getEngineTriangleID(x, y, orientation_idx)
+        color = self.colors[player_idx]
+        type = self.type[type_idx]
+
+        return (t_id, type, color)
+
 
 
     def getInitBoard(self):
@@ -109,10 +145,7 @@ class KudosataGame(Game):
         """
         pass
 
-    def isActionValid(self, action):
-        pass
-
-    def getValidMoves(self, board, player):
+    def getValidMoves(self, encoded_board, player):
         """
         Input:
             board: current board
@@ -123,19 +156,23 @@ class KudosataGame(Game):
                         moves that are valid from the current board and player,
                         0 for invalid moves
         """
+        engine: k.Engine = self.encodedBoardToEngine(encoded_board)
+        engine_board = engine.board()
+
         n_actions = self.getActionSize()
         valid_moves = np.ones(n_actions)
         action_idx = 0
         for x in range(self.board_size):
             for y in range(self.board_size):
-                for dir in self.directions:
-                    for type in self.type_idx:
-                        action = (x, y, dir, type)
-                        if not self.isActionValid(board, player, action):
+                for type in self.types:
+                    for dir in self.directions:
+                        t_id = self.getEngineTriangleID(x, y, dir)
+                        color = self.colors[player]
+                        if not engine_board.is_valid_to_place(t_id, color, type):
                             valid_moves[action_idx] = 0
                         action_idx += 1
 
-        return valid_moves 
+        return valid_moves
 
 
     def getGameEnded(self, board, player):

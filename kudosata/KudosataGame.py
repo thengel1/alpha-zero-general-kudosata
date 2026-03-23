@@ -158,8 +158,6 @@ class KudosataGame(Game):
 
         next_board_obj = current_board_obj.get_next_state(x, y, dir_idx, type_idx, color)
 
-        temp_engine = k.Engine(int(self.board_size), int(color))
-
         return self.getEncodedStateFromBoard(next_board_obj, -player), -player
 
 
@@ -174,30 +172,27 @@ class KudosataGame(Game):
         return b_obj.is_valid_to_place(t_id, color, t_type)
 
     def getValidMoves(self, board, player):
-        """
-        Input:
-            board: current board
-            player: current player
-
-        Returns:
-            validMoves: a binary vector of length self.getActionSize(), 1 for
-                        moves that are valid from the current board and player,
-                        0 for invalid moves
-        """
-        engine: k.Engine = self.encodedBoardToEngine(encoded_board)
-        engine_board = engine.board()
-
         n_actions = self.getActionSize()
-        valid_moves = np.ones(n_actions)
+        valid_moves = np.zeros(n_actions, dtype=np.int8)
+
+        engine_board = self.translate_matrix_to_board(board)
+        color = self.colors[player] 
+
         action_idx = 0
         for x in range(self.board_size):
             for y in range(self.board_size):
-                for type in self.types:
+
+                if board[:32, x, y].any(): # if the cell is occupied, avoid unecessary loops
+                    action_idx += 16
+                    continue
+
+                for t_type in self.types:
                     for dir in self.directions:
+
                         t_id = self.getEngineTriangleID(x, y, dir)
-                        color = self.colors[player]
-                        if not engine_board.is_valid_to_place(t_id, color, type):
-                            valid_moves[action_idx] = 0
+                        if engine_board.is_valid_to_place(t_id, color, t_type):
+                            valid_moves[action_idx] = 1
+                            
                         action_idx += 1
 
         return valid_moves
@@ -267,7 +262,7 @@ class KudosataGame(Game):
 
                 color = k.Color.RED if p_idx == 0 else k.Color.YELLOW
                 direction = self.directions[d_idx]
-                t_type = list(self.type_idx.keys())[t_idx]
+                t_type = self.types[t_idx]
 
                 xs, ys = np.where(board_matrix[layer] == 1.0)
                 for x, y in zip(xs, ys):

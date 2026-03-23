@@ -107,10 +107,35 @@ class KudosataGame(Game):
             nextBoard: board after applying action
             nextPlayer: player who plays in the next turn (should be -player)
         """
-        pass
+        current_board_obj = self.translate_matrix_to_board(board)
+        n_types = 4
+        n_dirs = 4
 
-    def isActionValid(self, action):
-        pass
+        type_idx = action % n_types
+        remaining = action // n_types
+        dir_idx = remaining % n_dirs
+        remaining = remaining // n_dirs
+        y = remaining % self.board_size
+        x = remaining // self.board_size
+
+        color = k.Color.RED if player == 1 else k.Color.YELLOW
+
+        next_board_obj = current_board_obj.get_next_state(x, y, dir_idx, type_idx, color)
+
+        temp_engine = k.Engine(int(self.board_size), int(color))
+
+        return self.getEncodedStateFromBoard(next_board_obj, -player), -player
+
+
+    def isActionValid(self, board, player, action_tuple):
+        x, y, direction, t_type = action_tuple
+
+        b_obj = self.translate_matrix_to_board(board)
+
+        color = k.Color.RED if player == 1 else k.Color.YELLOW
+        t_id = k.TriangleID(k.SquareCoord(x, y), direction)
+
+        return b_obj.is_valid_to_place(t_id, color, t_type)
 
     def getValidMoves(self, board, player):
         """
@@ -190,3 +215,29 @@ class KudosataGame(Game):
                          Required by MCTS for hashing.
         """
         pass
+
+    def translate_matrix_to_board(self, board, board_matrix):
+        board_obj = k.Board(self.board_size)
+
+        for layer in range(32):
+            if np.any(board_matrix[layer] == 1.0):
+                p_idx = layer // 16
+                t_idx = (layer % 16) // 4
+                d_idx = layer % 4
+
+                color = k.Color.RED if p_idx == 0 else k.Color.YELLOW
+                direction = self.directions[d_idx]
+                t_type = list(self.type_idx.keys())[t_idx]
+
+                xs, ys = np.where(board_matrix[layer] == 1.0)
+                for x, y in zip(xs, ys):
+                    board_obj.place_triangle(k.TriangleID(k.SquareCoord(int(x), int(y)), direction),color, t_type, True)
+        return board_obj
+
+    def getEncodedStateFromBoard(self, board_obj, next_player):
+        state = np.zeros((33, self.board_size, self.board_size), dtype=np.float32)
+
+        if next_player == -1:  # Jaune
+            state[32][:, :] = 1.0
+
+        return state

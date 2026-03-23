@@ -216,7 +216,7 @@ class KudosataGame(Game):
         """
         pass
 
-    def translate_matrix_to_board(self, board, board_matrix):
+    def translate_matrix_to_board(self, board_matrix):
         board_obj = k.Board(self.board_size)
 
         for layer in range(32):
@@ -234,7 +234,7 @@ class KudosataGame(Game):
                     board_obj.place_triangle(k.TriangleID(k.SquareCoord(int(x), int(y)), direction),color, t_type, True)
         return board_obj
 
-    def getEncodedStateFromBoard(self, board_obj, next_player):
+    def getEncodedStateFromBoard(self, next_player):
         state = np.zeros((33, self.board_size, self.board_size), dtype=np.float32)
 
         if next_player == -1:  # Jaune

@@ -21,7 +21,6 @@ class KudosataGame(Game):
     """
     def __init__(self, board_size: k.BoardSize = k.BoardSize.MEDIUM):
         self.board_size = board_size
-        self.engine = k.Engine(int(board_size), int(k.Color.RED))
 
         self.color_idx = {k.Color.RED: 0, k.Color.YELLOW: 1}
         self.type_idx = {
@@ -41,10 +40,12 @@ class KudosataGame(Game):
         self.types = [k.TriangleType.NORMAL, k.TriangleType.STAR, k.TriangleType.CONNECT_R, k.TriangleType.CONNECT_L]
 
 
-    def getEncodedState(self, engine):
+    """
+    Utility function
+    """
+    def getEncodedState(self, engine_board, player):
         
         state = np.zeros((33, self.board_size, self.board_size), dtype=np.float32)
-        board = self.engine.board()
 
         for x in range(self.board_size):
             for y in range(self.board_size):
@@ -52,54 +53,79 @@ class KudosataGame(Game):
                 for direction in self.directions:
                     
                     triangle_id = k.TriangleID(squareCoord, direction)
-                    color = board.get_triangle_color(triangle_id)
+                    color = engine_board.get_triangle_color(triangle_id)
                     
                     if color != k.Color.NONE:
-                        triangle_type = board.get_triangle_type(triangle_id)
+                        triangle_type = engine_board.get_triangle_type(triangle_id)
 
                         layer = (self.color_idx[color] * 16) + (self.type_idx[triangle_type] * 4) + self.dir_idx[direction]
                         state[layer][x][y] = 1.0
 
-        if self.engine.current_color() == self.color_idx[k.Color.YELLOW]:
+        if player == self.color_idx[k.Color.YELLOW]:
             state[32][:, :] = 1.0
             
         return state
     
-    def encodedBoardToEngine(board):
-        return None
+    """
+    Utility function
+    """
+    def translate_matrix_to_board(self, board_matrix):
+        board_obj = k.Board(self.board_size)
+
+        for layer in range(32):
+            if np.any(board_matrix[layer] == 1.0):
+                p_idx = layer // 16
+                t_idx = (layer % 16) // 4
+                d_idx = layer % 4
+
+                color = k.Color.RED if p_idx == 0 else k.Color.YELLOW
+                direction = self.directions[d_idx]
+                t_type = self.types[t_idx]
+
+                xs, ys = np.where(board_matrix[layer] == 1.0)
+                for x, y in zip(xs, ys):
+                    board_obj.place_triangle(k.TriangleID(k.SquareCoord(int(x), int(y)), direction),color, t_type, True)
+        return board_obj
     
-    def getActionIdx(self, x, y, t_orientation, t_type):
-        board_size = int(self.board_size)
-        n_action_per_square = 16
-        n_action_per_row = board_size * n_action_per_square
+    # def encodedStateToBoard(board):
+    #     return None
 
-        return x * n_action_per_row + y * n_action_per_square + t_type * 4 + t_orientation
-    
-
-    def getActionFromIdx(self, idx):
-        board_size = int(self.board_size)
-        n_action_per_square = 16
-        n_action_per_row = board_size * n_action_per_square
-
-        t_orientation = idx % 4
-        t_type = (idx // 4) % 4
-        y = (idx // n_action_per_square) % board_size
-        x = (idx // n_action_per_row)
-
-        return (x, y, t_orientation, t_type)
-    
+    """
+    Utility function
+    """
     def getEngineTriangleID(self, x, y, orientation_idx):
         squareCoord = k.SquareCoord(x, y)
         direction = self.directions[orientation_idx]
 
         return k.TriangleID(squareCoord, direction)
 
-    def getEngineAction(self, x, y, orientation_idx, type_idx, player_idx):
-        t_id = self.getEngineTriangleID(x, y, orientation_idx)
-        color = self.colors[player_idx]
-        type = self.type[type_idx]
+    
+    # def getActionIdx(self, x, y, t_orientation, t_type):
+    #     board_size = int(self.board_size)
+    #     n_action_per_square = 16
+    #     n_action_per_row = board_size * n_action_per_square
 
-        return (t_id, type, color)
+    #     return x * n_action_per_row + y * n_action_per_square + t_type * 4 + t_orientation
+    
+
+    # def getActionFromIdx(self, idx):
+    #     board_size = int(self.board_size)
+    #     n_action_per_square = 16
+    #     n_action_per_row = board_size * n_action_per_square
+
+    #     t_orientation = idx % 4
+    #     t_type = (idx // 4) % 4
+    #     y = (idx // n_action_per_square) % board_size
+    #     x = (idx // n_action_per_row)
+
+    #    return (x, y, t_orientation, t_type)
+    
+    # def getEngineAction(self, x, y, orientation_idx, type_idx, player_idx):
+    #     t_id = self.getEngineTriangleID(x, y, orientation_idx)
+    #     color = self.colors[player_idx]
+    #     type = self.type[type_idx]
+
+    #     return (t_id, type, color)
 
 
 
@@ -109,8 +135,8 @@ class KudosataGame(Game):
             startBoard: a representation of the board (ideally this is the form
                         that will be the input to your neural network)
         """
-        e = k.Engine(int(self.board_size), int(k.Color.RED))
-        return self.getEncodedState(e)
+        board_obj = k.Board(self.board_size)
+        return self.getEncodedState(board_obj, int(k.Color.RED))
 
     def getBoardSize(self):
         """
@@ -132,7 +158,7 @@ class KudosataGame(Game):
         return n_triangles * n_triangle_types
 
 
-    def getNextState(self, board, player, action):
+    def getNextState(self, state_board, player, action):
         """
         Input:
             board: current board
@@ -143,7 +169,7 @@ class KudosataGame(Game):
             nextBoard: board after applying action
             nextPlayer: player who plays in the next turn (should be -player)
         """
-        current_board_obj = self.translate_matrix_to_board(board)
+        current_board_obj = self.translate_matrix_to_board(state_board)
         n_types = 4
         n_dirs = 4
 
@@ -158,20 +184,19 @@ class KudosataGame(Game):
 
         next_board_obj = current_board_obj.get_next_state(x, y, dir_idx, type_idx, color)
 
-        return self.getEncodedStateFromBoard(next_board_obj, -player), -player
-
-
-    def isActionValid(self, board, player, action_tuple):
-        x, y, direction, t_type = action_tuple
-
-        b_obj = self.translate_matrix_to_board(board)
-
-        color = k.Color.RED if player == 1 else k.Color.YELLOW
-        t_id = k.TriangleID(k.SquareCoord(x, y), direction)
-
-        return b_obj.is_valid_to_place(t_id, color, t_type)
+        return self.getEncodedState(next_board_obj, -player), -player
 
     def getValidMoves(self, board, player):
+        """
+        Input:
+            board: current board
+            player: current player
+
+        Returns:
+            validMoves: a binary vector of length self.getActionSize(), 1 for
+                        moves that are valid from the current board and player,
+                        0 for invalid moves
+        """
         n_actions = self.getActionSize()
         valid_moves = np.zeros(n_actions, dtype=np.int8)
 
@@ -210,6 +235,8 @@ class KudosataGame(Game):
                
         """
         pass
+
+
 
     def getCanonicalForm(self, board, player):
         """
@@ -250,29 +277,3 @@ class KudosataGame(Game):
                          Required by MCTS for hashing.
         """
         pass
-
-    def translate_matrix_to_board(self, board_matrix):
-        board_obj = k.Board(self.board_size)
-
-        for layer in range(32):
-            if np.any(board_matrix[layer] == 1.0):
-                p_idx = layer // 16
-                t_idx = (layer % 16) // 4
-                d_idx = layer % 4
-
-                color = k.Color.RED if p_idx == 0 else k.Color.YELLOW
-                direction = self.directions[d_idx]
-                t_type = self.types[t_idx]
-
-                xs, ys = np.where(board_matrix[layer] == 1.0)
-                for x, y in zip(xs, ys):
-                    board_obj.place_triangle(k.TriangleID(k.SquareCoord(int(x), int(y)), direction),color, t_type, True)
-        return board_obj
-
-    def getEncodedStateFromBoard(self, next_player):
-        state = np.zeros((33, self.board_size, self.board_size), dtype=np.float32)
-
-        if next_player == -1:  # Jaune
-            state[32][:, :] = 1.0
-
-        return state

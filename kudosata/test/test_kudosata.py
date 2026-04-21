@@ -45,6 +45,7 @@ class TestKudosataGame(unittest.TestCase):
         board = self.game.getInitBoard()
         n = int(self.game.board_size)
         self.assertEqual(board.shape, (33, n, n))
+        self.assertFalse(board.any())
     
 
 if __name__ == "__main__":

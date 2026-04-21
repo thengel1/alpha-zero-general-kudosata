@@ -234,7 +234,23 @@ class KudosataGame(Game):
                small non-zero value for draw.
                
         """
-        pass
+        engine_board = self.translate_matrix_to_board(board)
+        engine = k.Engine()
+
+        if not engine.is_finished(engine_board):
+            return 0
+        
+        engine_winner = engine.winner_is(engine_board) #0 for RED, 1 for YELLOW, -1 for draw
+        if engine_winner == -1:
+            return 0.01
+        
+        current_player_color = k.Color.RED if player == 1 else k.Color.YELLOW
+        
+        if engine_winner == self.color_idx[current_player_color]:
+            return 1
+        else:
+            return -1
+
 
 
 

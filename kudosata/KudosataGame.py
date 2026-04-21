@@ -38,7 +38,7 @@ class KudosataGame(Game):
         self.directions = [k.Direction.NORTH, k.Direction.SOUTH, k.Direction.EAST, k.Direction.WEST]
         self.colors = [k.Color.RED, k.Color.YELLOW]
         self.types = [k.TriangleType.NORMAL, k.TriangleType.STAR, k.TriangleType.CONNECT_R, k.TriangleType.CONNECT_L]
-
+        self.n = 3 if board_size == k.BoardSize.SMALL else 6 if board_size == k.BoardSize.MEDIUM else 9
 
     """
     Utility function
@@ -176,8 +176,8 @@ class KudosataGame(Game):
         remaining = action // n_types
         dir_idx = remaining % n_dirs
         remaining = remaining // n_dirs
-        y = remaining % self.board_size
-        x = remaining // self.board_size
+        y = remaining % self.n
+        x = remaining // self.n
 
         color = k.Color.RED if player == 1 else k.Color.YELLOW
 
@@ -230,16 +230,21 @@ class KudosataGame(Game):
         """
         engine_board = self.translate_matrix_to_board(board)
         engine = k.Engine()
+        engine.parse(engine_board.to_string())
 
-        if not engine.is_finished(engine_board):
+        if not engine.is_finished():
             return 0
-        
-        engine_winner = engine.winner_is(engine_board) #0 for RED, 1 for YELLOW, -1 for draw
-        if engine_winner == -1:
+
+        try:
+            engine_winner = engine.winner_is()
+        except TypeError:
+            engine_winner = engine.winner_is(engine_board)
+
+        if engine_winner == -1:  # Draw
             return 0.01
-        
+
         current_player_color = k.Color.RED if player == 1 else k.Color.YELLOW
-        
+
         if engine_winner == self.color_idx[current_player_color]:
             return 1
         else:
@@ -262,7 +267,20 @@ class KudosataGame(Game):
                             board as is. When the player is black, we can invert
                             the colors and return the board.
         """
-        pass
+        if player == 1:
+            return board
+
+        canonical_board = np.copy(board)
+
+        player1_layers = np.copy(board[0:16])
+        player2_layers = np.copy(board[16:32])
+
+        canonical_board[0:16] = player2_layers
+        canonical_board[16:32] = player1_layers
+
+        canonical_board[32][:, :] = 1.0
+
+        return canonical_board
 
     def getSymmetries(self, board, pi):
         """
@@ -275,7 +293,27 @@ class KudosataGame(Game):
                        form of the board and the corresponding pi vector. This
                        is used when training the neural network from examples.
         """
-        pass
+        pi_np = np.array(pi)
+        n_dirs = 4
+        n_types = 4
+        pi_reshaped = pi_np.reshape((self.n, self.n, n_dirs, n_types))
+
+        l = []
+
+        l += [(board, pi_np.flatten())]
+
+        new_b = np.flip(board, axis=2)
+        new_pi = np.flip(pi_reshaped, axis=1)
+
+        east_pi = np.copy(new_pi[:, :, 1, :])
+        west_pi = np.copy(new_pi[:, :, 2, :])
+
+        new_pi[:, :, 1, :] = west_pi
+        new_pi[:, :, 2, :] = east_pi
+
+        l += [(new_b, new_pi.flatten())]
+
+        return l
 
     def stringRepresentation(self, board):
         """
@@ -286,4 +324,4 @@ class KudosataGame(Game):
             boardString: a quick conversion of board to a string format.
                          Required by MCTS for hashing.
         """
-        pass
+        return board.tobytes()

@@ -23,13 +23,13 @@ class TestKudosataGame(unittest.TestCase):
 
     def test_getBoardSize(self):
         game = KudosataGame(board_size=k.BoardSize.MEDIUM)
-        self.assertEqual(game.getBoardSize(), (6, 6))
+        self.assertEqual(game.getBoardSize(), (33, 6, 6))
 
         game = KudosataGame(board_size=k.BoardSize.SMALL)
-        self.assertEqual(game.getBoardSize(), (3, 3))
+        self.assertEqual(game.getBoardSize(), (33, 3, 3))
 
         game = KudosataGame(board_size=k.BoardSize.LARGE)
-        self.assertEqual(game.getBoardSize(), (9, 9))
+        self.assertEqual(game.getBoardSize(), (33, 9, 9))
 
     def test_action_size(self):
         game = KudosataGame(board_size=k.BoardSize.SMALL)
@@ -45,7 +45,8 @@ class TestKudosataGame(unittest.TestCase):
         board = self.game.getInitBoard()
         n = int(self.game.board_size)
         self.assertEqual(board.shape, (33, n, n))
-        self.assertFalse(board.any())
+        self.assertFalse(board[:32].any())
+        self.assertTrue(np.all(board[32] == 1))
     
 
 if __name__ == "__main__":

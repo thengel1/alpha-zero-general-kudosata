@@ -43,7 +43,7 @@ class KudosataGame(Game):
     """
     Utility function
     """
-    def getEncodedState(self, engine_board, player):
+    def getEncodedState(self, engine_board, state_player):
         
         state = np.zeros((33, self.board_size, self.board_size), dtype=np.float32)
 
@@ -61,8 +61,7 @@ class KudosataGame(Game):
                         layer = (self.color_idx[color] * 16) + (self.type_idx[triangle_type] * 4) + self.dir_idx[direction]
                         state[layer][x][y] = 1.0
 
-        if player == self.color_idx[k.Color.YELLOW]:
-            state[32][:, :] = 1.0
+        state[32][:, :] = state_player
             
         return state
     
@@ -135,8 +134,8 @@ class KudosataGame(Game):
             startBoard: a representation of the board (ideally this is the form
                         that will be the input to your neural network)
         """
-        board_obj = k.Board(self.board_size)
-        return self.getEncodedState(board_obj, int(k.Color.RED))
+        engine_board = k.Board(self.board_size)
+        return self.getEncodedState(engine_board, 1)
 
     def getBoardSize(self):
         """
@@ -144,7 +143,7 @@ class KudosataGame(Game):
             (x,y): a tuple of board dimensions
         """
         n_squares = int(self.board_size)
-        return (n_squares, n_squares)
+        return (33, n_squares, n_squares)
 
     def getActionSize(self):
         """
@@ -186,7 +185,7 @@ class KudosataGame(Game):
 
         return self.getEncodedState(next_board_obj, -player), -player
 
-    def getValidMoves(self, board, player):
+    def getValidMoves(self, state_board, state_player):
         """
         Input:
             board: current board
@@ -200,22 +199,17 @@ class KudosataGame(Game):
         n_actions = self.getActionSize()
         valid_moves = np.zeros(n_actions, dtype=np.int8)
 
-        engine_board = self.translate_matrix_to_board(board)
-        color = self.colors[player] 
+        engine_board = self.translate_matrix_to_board(state_board)
+        current_color = k.Color.RED if state_player == 1 else k.Color.YELLOW
 
         action_idx = 0
         for x in range(self.board_size):
             for y in range(self.board_size):
+                for t_dir in self.directions:
+                    for t_type in self.types:
 
-                if board[:32, x, y].any(): # if the cell is occupied, avoid unecessary loops
-                    action_idx += 16
-                    continue
-
-                for t_type in self.types:
-                    for dir in self.directions:
-
-                        t_id = self.getEngineTriangleID(x, y, dir)
-                        if engine_board.is_valid_to_place(t_id, color, t_type):
+                        t_id = self.getEngineTriangleID(x, y, t_dir)
+                        if engine_board.is_valid_to_place(t_id, current_color, t_type):
                             valid_moves[action_idx] = 1
                             
                         action_idx += 1

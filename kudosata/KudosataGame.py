@@ -31,9 +31,9 @@ class KudosataGame(Game):
         }
         self.dir_idx = {
             k.Direction.NORTH: 0,
-            k.Direction.EAST: 1,
-            k.Direction.WEST: 2,
-            k.Direction.SOUTH: 3
+            k.Direction.SOUTH: 1,
+            k.Direction.EAST: 2,
+            k.Direction.WEST: 3
         }
         self.directions = [k.Direction.NORTH, k.Direction.SOUTH, k.Direction.EAST, k.Direction.WEST]
         self.colors = [k.Color.RED, k.Color.YELLOW]

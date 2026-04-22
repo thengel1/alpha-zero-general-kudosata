@@ -12,14 +12,16 @@ from kudosata.KudosataGame import KudosataGame
 
 class TestKudosataGame(unittest.TestCase):
     def setUp(self):
-        self.game = KudosataGame(k.BoardSize.MEDIUM)
+        self.game = KudosataGame(k.BoardSize.SMALL)
+        self.board_size = int(k.BoardSize.SMALL)
+        self.action_size = 144
 
-    def test_init_default_board_size(self):
-        self.assertEqual(self.game.board_size, k.BoardSize.MEDIUM)
+        self.init_board = np.zeros((33, self.board_size, self.board_size), dtype=np.float32)
+        self.init_board[32][:, :] = 1
 
     def test_init_custom_board_size(self):
-        game = KudosataGame(board_size=k.BoardSize.SMALL)
-        self.assertEqual(game.board_size, k.BoardSize.SMALL)
+        game = KudosataGame(board_size=k.BoardSize.MEDIUM)
+        self.assertEqual(game.board_size, k.BoardSize.MEDIUM)
 
     def test_getBoardSize(self):
         game = KudosataGame(board_size=k.BoardSize.MEDIUM)
@@ -48,20 +50,55 @@ class TestKudosataGame(unittest.TestCase):
         self.assertFalse(board[:32].any())
         self.assertTrue(np.all(board[32] == 1))
 
-    def test_getNextState_and_captures(self):
-        init_board = self.game.getInitBoard()
-        next_board, next_player = self.game.getNextState(init_board, 1, 0)
+    def test_getValidMoves_len(self):
+        
+        valid_moves = self.game.getValidMoves(self.init_board, 1)
 
+        self.assertEqual(len(valid_moves), self.action_size)
+
+    def test_getValidMoves_init_board(self):
+        player = 1
+        
+        unexisting_corners_cells = 8
+        n_types = 4
+        expected_illigal_count = unexisting_corners_cells * n_types
+
+        valid_moves = self.game.getValidMoves(self.init_board, player)
+        
+        illegal_moves_count = len(valid_moves) - np.count_nonzero(valid_moves)
+        
+        self.assertEqual(illegal_moves_count, expected_illigal_count)
+
+    def test_getValidMoves_in_game(self):
+        player = 1
+        valid_moves_before = self.game.getValidMoves(self.init_board, player)
+
+        action = 56
+        self.assertEqual(int(valid_moves_before[action]), 1)
+
+        board_after_move, _ = self.game.getNextState(self.init_board, player, action)
+        valid_moves_after = self.game.getValidMoves(board_after_move, -1)
+
+        self.assertEqual(valid_moves_after.sum(), valid_moves_before.sum() - 4) # one triangle tile = 4 actions
+        self.assertEqual(valid_moves_after[action], 0)
+
+    def test_getNextState(self):
+        player = 1
+        direction = int(k.Direction.EAST)
+        type = int(k.TriangleType.NORMAL)
+        action = 1 * (self.board_size * 16) + 0 * 16 + direction * 4 + type # = 48 + 0 + 8 + 0 = 56
+        
+        next_board, next_player = self.game.getNextState(self.init_board, player, action)
+        
         self.assertEqual(next_player, -1)
-        self.assertTrue(next_board[:16].any())
-        self.assertEqual(next_board[32][0][0], -1)
-
-    def test_getValidMoves(self):
-        board = self.game.getInitBoard()
-        valids = self.game.getValidMoves(board, 1)
-
-        self.assertEqual(len(valids), self.game.getActionSize())
-        self.assertTrue(valids.any())
+        self.assertTrue(np.all(next_board[32] == -1))
+        
+        # color_idx(RED)=0, type_idx(NORMAL)=0, dir_idx(EAST)=2
+        # expected_layer = 0*16 + 0*4 + 2 = 2
+        expected_layer = 2
+        
+        self.assertEqual(next_board[expected_layer, 1, 0], 1.0)
+        self.assertEqual(np.sum(next_board[:32]), 1.0)
 
     def test_canonical_form_consistency(self):
         board = self.game.getInitBoard()
@@ -71,7 +108,7 @@ class TestKudosataGame(unittest.TestCase):
         self.assertEqual(canonical[16][0][0], 1.0)
         self.assertEqual(canonical[0][0][0], 0.0)
 
-    def test_game_ended(self):
+    def test_game_not_ended(self):
         board = self.game.getInitBoard()
         self.assertEqual(self.game.getGameEnded(board, 1), 0)
     

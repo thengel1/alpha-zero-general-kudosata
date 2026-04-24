@@ -24,6 +24,7 @@ class MCTS():
 
         self.Es = {}  # stores game.getGameEnded ended for board s
         self.Vs = {}  # stores game.getValidMoves for board s
+        self._state_decision_map = {}
 
     def getActionProb(self, canonicalBoard, temp=1):
         """
@@ -49,7 +50,17 @@ class MCTS():
 
         counts = [x ** (1. / temp) for x in counts]
         counts_sum = float(sum(counts))
-        probs = [x / counts_sum for x in counts]
+
+        if counts_sum == 0:
+            valids = self.game.getValidMoves(canonicalBoard, 1)
+            valid_sum = np.sum(valids)
+            if valid_sum == 0:
+                probs = np.ones(self.game.getActionSize(), dtype=np.float32) / self.game.getActionSize()
+            else:
+                probs = valids / valid_sum
+        else:
+            probs = [x / counts_sum for x in counts]
+
         return probs
 
     def search(self, canonicalBoard):
@@ -71,66 +82,87 @@ class MCTS():
         Returns:
             v: the negative of the value of the current canonicalBoard
         """
+        s_ptr = canonicalBoard
+        path = []
+        depth = 0
+        v=0
 
-        s = self.game.stringRepresentation(canonicalBoard)
+        while depth < 50:
+            depth += 1
+            s = self.game.stringRepresentation(s_ptr)
 
-        if s not in self.Es:
-            self.Es[s] = self.game.getGameEnded(canonicalBoard, 1)
-        if self.Es[s] != 0:
-            # terminal node
-            return -self.Es[s]
+            if s not in self.Es:
+                self.Es[s] = self.game.getGameEnded(s_ptr, 1)
+            if self.Es[s] != 0:
+                v = -self.Es[s]
+                break
 
-        if s not in self.Ps:
-            # leaf node
-            self.Ps[s], v = self.nnet.predict(canonicalBoard)
-            valids = self.game.getValidMoves(canonicalBoard, 1)
-            self.Ps[s] = self.Ps[s] * valids  # masking invalid moves
-            sum_Ps_s = np.sum(self.Ps[s])
-            if sum_Ps_s > 0:
-                self.Ps[s] /= sum_Ps_s  # renormalize
-            else:
-                # if all valid moves were masked make all valid moves equally probable
+            if s not in self.Ps:
+                self.Ps[s], v = self.nnet.predict(s_ptr)
+                valids = self.game.getValidMoves(s_ptr, 1)
+                self.Ps[s] = self.Ps[s] * valids
+                sum_Ps = np.sum(self.Ps[s])
 
-                # NB! All valid moves may be masked if either your NNet architecture is insufficient or you've get overfitting or something else.
-                # If you have got dozens or hundreds of these messages you should pay attention to your NNet and/or training process.   
-                log.error("All valid moves were masked, doing a workaround.")
-                self.Ps[s] = self.Ps[s] + valids
-                self.Ps[s] /= np.sum(self.Ps[s])
-
-            self.Vs[s] = valids
-            self.Ns[s] = 0
-            return -v
-
-        valids = self.Vs[s]
-        cur_best = -float('inf')
-        best_act = -1
-
-        # pick the action with the highest upper confidence bound
-        for a in range(self.game.getActionSize()):
-            if valids[a]:
-                if (s, a) in self.Qsa:
-                    u = self.Qsa[(s, a)] + self.args.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s]) / (
-                            1 + self.Nsa[(s, a)])
+                if sum_Ps > 0:
+                    self.Ps[s] /= sum_Ps
                 else:
-                    u = self.args.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s] + EPS)  # Q = 0 ?
+                    valid_sum = np.sum(valids)
+                    if valid_sum > 0:
+                        self.Ps[s] = valids.astype(np.float32) / valid_sum
+                    else:
+                        self.Ps[s] = np.zeros_like(self.Ps[s], dtype=np.float32)
+                        self.Vs[s] = valids
+                        self.Ns[s] = 0
+                        v = 0
+                        break
 
-                if u > cur_best:
-                    cur_best = u
-                    best_act = a
+                self.Vs[s] = valids
+                self.Ns[s] = 0
+                v = -v
+                break
 
-        a = best_act
-        next_s, next_player = self.game.getNextState(canonicalBoard, 1, a)
-        next_s = self.game.getCanonicalForm(next_s, next_player)
+            valids = self.Vs[s]
+            cur_best = -float('inf')
+            best_act = -1
 
-        v = self.search(next_s)
+            for a in range(self.game.getActionSize()):
+                if valids[a]:
+                    if (s, a) in self.Qsa:
+                        u = self.Qsa[(s, a)] + self.args.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s]) / (
+                                    1 + self.Nsa[(s, a)])
+                    else:
+                        u = self.args.cpuct * self.Ps[s][a] * math.sqrt(self.Ns[s] + EPS)
 
-        if (s, a) in self.Qsa:
-            self.Qsa[(s, a)] = (self.Nsa[(s, a)] * self.Qsa[(s, a)] + v) / (self.Nsa[(s, a)] + 1)
-            self.Nsa[(s, a)] += 1
+                    if u > cur_best:
+                        cur_best = u
+                        best_act = a
 
-        else:
-            self.Qsa[(s, a)] = v
-            self.Nsa[(s, a)] = 1
+            a = best_act
+            if a == -1:
+                v = 0
+                break
+            path.append((s, a))
 
-        self.Ns[s] += 1
+            next_s, next_player = self.game.getNextState(s_ptr, 1, a)
+            s_ptr = self.game.getCanonicalForm(next_s, next_player)
+
+        if depth >= 1000:
+            v = 0
+
+        for s, a in reversed(path):
+            v = -v
+            if (s, a) in self.Qsa:
+                self.Qsa[(s, a)] = (
+                                           self.Nsa[(s, a)] * self.Qsa[(s, a)] + v
+                                   ) / (self.Nsa[(s, a)] + 1)
+                self.Nsa[(s, a)] += 1
+            else:
+                self.Qsa[(s, a)] = v
+                self.Nsa[(s, a)] = 1
+
+            if s in self.Ns:
+                self.Ns[s] += 1
+            else:
+                self.Ns[s] = 1
+
         return -v

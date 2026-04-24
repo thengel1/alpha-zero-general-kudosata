@@ -1,12 +1,14 @@
 import sys
 import numpy as np
 
+from Coach import log
+
 sys.path.append('..')
 sys.path.append('.')
 from Game import Game
 
 # from openxum_kudosata import Engine, BoardSize, Color
-import openxum_kudosata as k
+from . import openxum_kudosata as k
 
 
 class KudosataGame(Game):
@@ -21,40 +23,36 @@ class KudosataGame(Game):
     """
     def __init__(self, board_size: k.BoardSize = k.BoardSize.MEDIUM):
         self.board_size = board_size
-
-        self.color_idx = {k.Color.RED: 0, k.Color.YELLOW: 1}
-        self.type_idx = {
-            k.TriangleType.NORMAL: 0,
-            k.TriangleType.STAR: 1,
-            k.TriangleType.CONNECT_R: 2,
-            k.TriangleType.CONNECT_L: 3
-        }
-        self.dir_idx = {
-            k.Direction.NORTH: 0,
-            k.Direction.SOUTH: 1,
-            k.Direction.EAST: 2,
-            k.Direction.WEST: 3
-        }
-        self.directions = [k.Direction.NORTH, k.Direction.SOUTH, k.Direction.EAST, k.Direction.WEST]
-        self.colors = [k.Color.RED, k.Color.YELLOW]
-        self.types = [k.TriangleType.NORMAL, k.TriangleType.STAR, k.TriangleType.CONNECT_R, k.TriangleType.CONNECT_L]
         self.n = 3 if board_size == k.BoardSize.SMALL else 6 if board_size == k.BoardSize.MEDIUM else 9
+
+        self.colors = [k.Color.RED, k.Color.YELLOW]
+        self.color_idx = {c: i for i, c in enumerate(self.colors)}
+
+        self.types = [k.TriangleType.NORMAL, k.TriangleType.STAR, k.TriangleType.CONNECT_R, k.TriangleType.CONNECT_L]
+        self.type_idx = {t: i for i, t in enumerate(self.types)}
+
+        self.directions = [k.Direction.NORTH, k.Direction.EAST, k.Direction.WEST, k.Direction.SOUTH]
+        self.dir_idx = { d: i for i, d in enumerate(self.directions)}
+
+        empty_board = k.Board(self.board_size)
+        engine = k.Engine(int(self.board_size), int(k.Color.RED))
+        self.max_remaining = engine.remaining_triangle_count(empty_board)
 
     """
     Utility function
     """
     def getEncodedState(self, engine_board, state_player):
-        
-        state = np.zeros((33, self.board_size, self.board_size), dtype=np.float32)
 
-        for x in range(self.board_size):
-            for y in range(self.board_size):
+        state = np.zeros((41, self.n, self.n), dtype=np.float32)
+
+        for x in range(self.n):
+            for y in range(self.n):
                 squareCoord = k.SquareCoord(x, y)
                 for direction in self.directions:
-                    
+
                     triangle_id = k.TriangleID(squareCoord, direction)
                     color = engine_board.get_triangle_color(triangle_id)
-                    
+
                     if color != k.Color.NONE:
                         triangle_type = engine_board.get_triangle_type(triangle_id)
 
@@ -62,7 +60,24 @@ class KudosataGame(Game):
                         state[layer][x][y] = 1.0
 
         state[32][:, :] = state_player
-            
+
+        engine = k.Engine(int(self.board_size), int(k.Color.RED))
+        remaining = engine.remaining_triangle_count(engine_board)
+
+        for color in self.colors:
+            c_idx = self.color_idx[color]
+
+            for t_type in self.types:
+                t_idx = self.type_idx[t_type]
+
+                layer = 33 + c_idx * 4 + t_idx
+
+                max_count = self.max_remaining[color][t_type]
+                current_count = remaining[color][t_type]
+
+                value = 0.0 if max_count == 0 else current_count / max_count
+                state[layer, :, :] = value
+
         return state
     
     """
@@ -70,20 +85,18 @@ class KudosataGame(Game):
     """
     def translate_matrix_to_board(self, board_matrix):
         board_obj = k.Board(self.board_size)
+        layers, xs, ys = np.where(board_matrix[:32] == 1.0)
 
-        for layer in range(32):
-            if np.any(board_matrix[layer] == 1.0):
-                p_idx = layer // 16
-                t_idx = (layer % 16) // 4
-                d_idx = layer % 4
+        for l, x, y in zip(layers, xs, ys):
+            p_idx = l // 16
+            t_idx = (l % 16) // 4
+            d_idx = l % 4
 
-                color = k.Color.RED if p_idx == 0 else k.Color.YELLOW
-                direction = self.directions[d_idx]
-                t_type = self.types[t_idx]
+            color = self.colors[p_idx]
+            direction = self.directions[d_idx]
+            t_type = self.types[t_idx]
 
-                xs, ys = np.where(board_matrix[layer] == 1.0)
-                for x, y in zip(xs, ys):
-                    board_obj.place_triangle(k.TriangleID(k.SquareCoord(int(x), int(y)), direction),color, t_type, True)
+            board_obj.place_triangle(k.TriangleID(k.SquareCoord(int(x), int(y)), direction), color, t_type, True)
         return board_obj
     
     # def encodedStateToBoard(board):
@@ -93,10 +106,10 @@ class KudosataGame(Game):
     Utility function
     """
     def getEngineTriangleID(self, x, y, orientation_idx):
-        squareCoord = k.SquareCoord(x, y)
-        direction = self.directions[orientation_idx]
-
-        return k.TriangleID(squareCoord, direction)
+        return k.TriangleID(
+            k.SquareCoord(int(x), int(y)),
+            self.directions[orientation_idx]
+        )
 
     
     # def getActionIdx(self, x, y, t_orientation, t_type):
@@ -142,19 +155,14 @@ class KudosataGame(Game):
         Returns:
             (x,y): a tuple of board dimensions
         """
-        n_squares = int(self.board_size)
-        return (33, n_squares, n_squares)
+        return (41, self.n, self.n)
 
     def getActionSize(self):
         """
         Returns:
             actionSize: number of all possible actions
         """
-        n_squares = int(self.board_size)
-        n_squares_coord = n_squares * n_squares
-        n_triangles = n_squares_coord * 4
-        n_triangle_types = 4
-        return n_triangles * n_triangle_types
+        return self.n * self.n * 4 * 4
 
 
     def getNextState(self, state_board, player, action):
@@ -169,19 +177,19 @@ class KudosataGame(Game):
             nextPlayer: player who plays in the next turn (should be -player)
         """
         current_board_obj = self.translate_matrix_to_board(state_board)
-        n_types = 4
-        n_dirs = 4
-
-        type_idx = action % n_types
-        remaining = action // n_types
-        dir_idx = remaining % n_dirs
-        remaining = remaining // n_dirs
-        y = remaining % self.n
-        x = remaining // self.n
+        x, y, dir_idx, type_idx = self.decode_action(action)
 
         color = k.Color.RED if player == 1 else k.Color.YELLOW
+        direction = self.directions[dir_idx]
+        t_type = self.types[type_idx]
 
-        next_board_obj = current_board_obj.get_next_state(x, y, dir_idx, type_idx, color)
+        next_board_obj = current_board_obj.get_next_state(
+            int(x),
+            int(y),
+            int(dir_idx),
+            int(type_idx),
+            color
+        )
 
         return self.getEncodedState(next_board_obj, -player), -player
 
@@ -196,23 +204,24 @@ class KudosataGame(Game):
                         moves that are valid from the current board and player,
                         0 for invalid moves
         """
-        n_actions = self.getActionSize()
-        valid_moves = np.zeros(n_actions, dtype=np.int8)
+        valid_moves = np.zeros(self.getActionSize(), dtype=np.int8)
 
         engine_board = self.translate_matrix_to_board(state_board)
         current_color = k.Color.RED if state_player == 1 else k.Color.YELLOW
 
-        action_idx = 0
-        for x in range(self.board_size):
-            for y in range(self.board_size):
-                for t_dir in self.directions:
-                    for t_type in self.types:
+        for x in range(self.n):
+            for y in range(self.n):
+                for dir_idx, direction in enumerate(self.directions):
+                    for type_idx, t_type in enumerate(self.types):
 
-                        t_id = self.getEngineTriangleID(x, y, t_dir)
+                        t_id = k.TriangleID(
+                            k.SquareCoord(int(x), int(y)),
+                            direction
+                        )
+
                         if engine_board.is_valid_to_place(t_id, current_color, t_type):
+                            action_idx = self.encode_action(x, y, dir_idx, type_idx)
                             valid_moves[action_idx] = 1
-                            
-                        action_idx += 1
 
         return valid_moves
 
@@ -232,23 +241,22 @@ class KudosataGame(Game):
         engine = k.Engine()
         engine.parse(engine_board.to_string())
 
-        if not engine.is_finished():
-            return 0
+        if engine.is_finished():
 
-        try:
-            engine_winner = engine.winner_is()
-        except TypeError:
-            engine_winner = engine.winner_is(engine_board)
+            try:
+                engine_winner = engine.winner_is()
+            except TypeError:
+                engine_winner = engine.winner_is(engine_board)
 
-        if engine_winner == -1:  # Draw
+            if engine_winner == -1: return 0.01
+
+            current_player_color = k.Color.RED if player == 1 else k.Color.YELLOW
+            return 1 if engine_winner == self.color_idx[current_player_color] else -1
+
+        if np.count_nonzero(board[:32]) >= (self.n * self.n * 4 * 0.9):
             return 0.01
 
-        current_player_color = k.Color.RED if player == 1 else k.Color.YELLOW
-
-        if engine_winner == self.color_idx[current_player_color]:
-            return 1
-        else:
-            return -1
+        return 0
 
 
 
@@ -280,6 +288,12 @@ class KudosataGame(Game):
 
         canonical_board[32][:, :] = 1.0
 
+        red_reserves = np.copy(board[33:37])
+        yellow_reserves = np.copy(board[37:41])
+
+        canonical_board[33:37] = yellow_reserves
+        canonical_board[37:41] = red_reserves
+
         return canonical_board
 
     def getSymmetries(self, board, pi):
@@ -296,6 +310,11 @@ class KudosataGame(Game):
         pi_np = np.array(pi)
         n_dirs = 4
         n_types = 4
+        expected_size = self.n * self.n * n_dirs * n_types
+        if pi_np.size != expected_size:
+            log.error(f"Taille incorrecte pour pi: {pi_np.size}, attendu {expected_size}")
+
+            return [(board, pi)]
         pi_reshaped = pi_np.reshape((self.n, self.n, n_dirs, n_types))
 
         l = []
@@ -324,4 +343,19 @@ class KudosataGame(Game):
             boardString: a quick conversion of board to a string format.
                          Required by MCTS for hashing.
         """
-        return board.tobytes()
+        return board.astype(np.float32).tobytes()
+
+    def encode_action(self, x, y, dir_idx, type_idx):
+        return (((x * self.n + y) * 4) + dir_idx) * 4 + type_idx
+
+    def decode_action(self, action):
+        type_idx = action % 4
+        remaining = action // 4
+
+        dir_idx = remaining % 4
+        remaining //= 4
+
+        y = remaining % self.n
+        x = remaining // self.n
+
+        return x, y, dir_idx, type_idx

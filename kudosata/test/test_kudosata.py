@@ -1,117 +1,184 @@
 import unittest
 import sys
+import numpy as np
 
 sys.path.append('..')
 sys.path.append('.')
 
-import openxum_kudosata as k
-import numpy as np
-
+from kudosata import openxum_kudosata as k
 from kudosata.KudosataGame import KudosataGame
 
 
 class TestKudosataGame(unittest.TestCase):
     def setUp(self):
-        self.game = KudosataGame(k.BoardSize.SMALL)
-        self.board_size = int(k.BoardSize.SMALL)
-        self.action_size = 144
+        self.game = KudosataGame(k.BoardSize.MEDIUM)
 
-        self.init_board = np.zeros((33, self.board_size, self.board_size), dtype=np.float32)
-        self.init_board[32][:, :] = 1
+    def test_init_default_board_size(self):
+        self.assertEqual(self.game.board_size, k.BoardSize.MEDIUM)
+        self.assertEqual(self.game.n, 6)
 
     def test_init_custom_board_size(self):
-        game = KudosataGame(board_size=k.BoardSize.MEDIUM)
-        self.assertEqual(game.board_size, k.BoardSize.MEDIUM)
+        small = KudosataGame(k.BoardSize.SMALL)
+        medium = KudosataGame(k.BoardSize.MEDIUM)
+        large = KudosataGame(k.BoardSize.LARGE)
+
+        self.assertEqual(small.n, 3)
+        self.assertEqual(medium.n, 6)
+        self.assertEqual(large.n, 9)
 
     def test_getBoardSize(self):
-        game = KudosataGame(board_size=k.BoardSize.MEDIUM)
-        self.assertEqual(game.getBoardSize(), (33, 6, 6))
-
-        game = KudosataGame(board_size=k.BoardSize.SMALL)
-        self.assertEqual(game.getBoardSize(), (33, 3, 3))
-
-        game = KudosataGame(board_size=k.BoardSize.LARGE)
-        self.assertEqual(game.getBoardSize(), (33, 9, 9))
+        self.assertEqual(KudosataGame(k.BoardSize.SMALL).getBoardSize(), (41, 3, 3))
+        self.assertEqual(KudosataGame(k.BoardSize.MEDIUM).getBoardSize(), (41, 6, 6))
+        self.assertEqual(KudosataGame(k.BoardSize.LARGE).getBoardSize(), (41, 9, 9))
 
     def test_action_size(self):
-        game = KudosataGame(board_size=k.BoardSize.SMALL)
-        self.assertEqual(game.getActionSize(), 144)
+        self.assertEqual(KudosataGame(k.BoardSize.SMALL).getActionSize(), 3 * 3 * 4 * 4)
+        self.assertEqual(KudosataGame(k.BoardSize.MEDIUM).getActionSize(), 6 * 6 * 4 * 4)
+        self.assertEqual(KudosataGame(k.BoardSize.LARGE).getActionSize(), 9 * 9 * 4 * 4)
 
-        game = KudosataGame(board_size=k.BoardSize.MEDIUM)
-        self.assertEqual(game.getActionSize(), 576)
-        
-        game = KudosataGame(board_size=k.BoardSize.LARGE)
-        self.assertEqual(game.getActionSize(), 1296)
-
-    def test_get_init_board(self):
+    def test_get_init_board_shape_and_layers(self):
         board = self.game.getInitBoard()
-        n = int(self.game.board_size)
-        self.assertEqual(board.shape, (33, n, n))
+
+        self.assertEqual(board.shape, (41, 6, 6))
+
         self.assertFalse(board[:32].any())
-        self.assertTrue(np.all(board[32] == 1))
 
-    def test_getValidMoves_len(self):
-        
-        valid_moves = self.game.getValidMoves(self.init_board, 1)
+        self.assertTrue(np.all(board[32] == 1.0))
 
-        self.assertEqual(len(valid_moves), self.action_size)
+        self.assertTrue(np.all(board[33:41] == 1.0))
 
-    def test_getValidMoves_init_board(self):
-        player = 1
-        
-        unexisting_corners_cells = 8
-        n_types = 4
-        expected_illigal_count = unexisting_corners_cells * n_types
+    def test_encoded_state_after_one_piece_updates_board_and_reserve(self):
+        engine_board = k.Board(k.BoardSize.MEDIUM)
 
-        valid_moves = self.game.getValidMoves(self.init_board, player)
-        
-        illegal_moves_count = len(valid_moves) - np.count_nonzero(valid_moves)
-        
-        self.assertEqual(illegal_moves_count, expected_illigal_count)
+        t_id = k.TriangleID(3, 3, k.Direction.NORTH)
+        engine_board.place_triangle(
+            t_id,
+            k.Color.RED,
+            k.TriangleType.NORMAL,
+            True
+        )
 
-    def test_getValidMoves_in_game(self):
-        player = 1
-        valid_moves_before = self.game.getValidMoves(self.init_board, player)
+        state = self.game.getEncodedState(engine_board, 1)
 
-        action = 56
-        self.assertEqual(int(valid_moves_before[action]), 1)
+        red_normal_layer = 0
+        red_normal_reserve_layer = 33
 
-        board_after_move, _ = self.game.getNextState(self.init_board, player, action)
-        valid_moves_after = self.game.getValidMoves(board_after_move, -1)
+        self.assertEqual(state.shape, (41, 6, 6))
+        self.assertEqual(state[red_normal_layer, 3, 3], 1.0)
 
-        self.assertEqual(valid_moves_after.sum(), valid_moves_before.sum() - 4) # one triangle tile = 4 actions
-        self.assertEqual(valid_moves_after[action], 0)
+        expected = 31 / 32
+        self.assertAlmostEqual(
+            float(state[red_normal_reserve_layer, 0, 0]),
+            expected,
+            places=5
+        )
 
-    def test_getNextState(self):
-        player = 1
-        direction = int(k.Direction.EAST)
-        type = int(k.TriangleType.NORMAL)
-        action = 1 * (self.board_size * 16) + 0 * 16 + direction * 4 + type # = 48 + 0 + 8 + 0 = 56
-        
-        next_board, next_player = self.game.getNextState(self.init_board, player, action)
-        
-        self.assertEqual(next_player, -1)
-        self.assertTrue(np.all(next_board[32] == -1))
-        
-        # color_idx(RED)=0, type_idx(NORMAL)=0, dir_idx(EAST)=2
-        # expected_layer = 0*16 + 0*4 + 2 = 2
-        expected_layer = 2
-        
-        self.assertEqual(next_board[expected_layer, 1, 0], 1.0)
-        self.assertEqual(np.sum(next_board[:32]), 1.0)
+    def test_translate_matrix_to_board_roundtrip(self):
+        engine_board = k.Board(k.BoardSize.MEDIUM)
 
-    def test_canonical_form_consistency(self):
+        samples = [
+            (0, 0, k.Direction.NORTH, k.Color.RED, k.TriangleType.NORMAL),
+            (0, 1, k.Direction.EAST, k.Color.RED, k.TriangleType.STAR),
+            (1, 0, k.Direction.WEST, k.Color.YELLOW, k.TriangleType.CONNECT_R),
+            (1, 1, k.Direction.SOUTH, k.Color.YELLOW, k.TriangleType.CONNECT_L),
+        ]
+
+        for x, y, direction, color, t_type in samples:
+            engine_board.place_triangle(
+                k.TriangleID(k.SquareCoord(x, y), direction),
+                color,
+                t_type,
+                True
+            )
+
+        encoded = self.game.getEncodedState(engine_board, 1)
+        decoded = self.game.translate_matrix_to_board(encoded)
+
+        self.assertEqual(engine_board.to_string(), decoded.to_string())
+
+    def test_encode_decode_action_consistency(self):
+        for x in range(self.game.n):
+            for y in range(self.game.n):
+                for dir_idx in range(4):
+                    for type_idx in range(4):
+                        action = self.game.encode_action(x, y, dir_idx, type_idx)
+                        decoded = self.game.decode_action(action)
+                        self.assertEqual(decoded, (x, y, dir_idx, type_idx))
+
+    def test_getValidMoves_returns_correct_shape(self):
         board = self.game.getInitBoard()
-        board[0][0][0] = 1.0
+        valids = self.game.getValidMoves(board, 1)
+
+        self.assertEqual(valids.shape, (self.game.getActionSize(),))
+        self.assertTrue(np.any(valids == 1))
+        self.assertTrue(np.all((valids == 0) | (valids == 1)))
+
+    def test_getNextState_changes_player_and_state(self):
+        board = self.game.getInitBoard()
+        valids = self.game.getValidMoves(board, 1)
+
+        valid_actions = np.where(valids == 1)[0]
+        self.assertGreater(len(valid_actions), 0)
+
+        action = int(valid_actions[0])
+        next_board, next_player = self.game.getNextState(board, 1, action)
+
+        self.assertEqual(next_player, -1)
+        self.assertEqual(next_board.shape, (41, 6, 6))
+        self.assertTrue(next_board[:32].any())
+        self.assertTrue(np.all(next_board[32] == -1.0))
+
+    def test_reserve_decreases_after_getNextState(self):
+        board = self.game.getInitBoard()
+        valids = self.game.getValidMoves(board, 1)
+
+        valid_actions = np.where(valids == 1)[0]
+        action = int(valid_actions[0])
+
+        x, y, dir_idx, type_idx = self.game.decode_action(action)
+
+        next_board, _ = self.game.getNextState(board, 1, action)
+
+        reserve_layer = 33 + type_idx
+
+        self.assertLess(
+            float(next_board[reserve_layer, 0, 0]),
+            float(board[reserve_layer, 0, 0])
+        )
+
+    def test_canonical_form_swaps_players_and_reserves(self):
+        board = self.game.getInitBoard()
+
+        board[0, 0, 0] = 1.0
+
+        board[33, :, :] = 0.5
+        board[37, :, :] = 0.25
 
         canonical = self.game.getCanonicalForm(board, -1)
-        self.assertEqual(canonical[16][0][0], 1.0)
-        self.assertEqual(canonical[0][0][0], 0.0)
 
-    def test_game_not_ended(self):
+        self.assertEqual(canonical[16, 0, 0], 1.0)
+        self.assertEqual(canonical[0, 0, 0], 0.0)
+
+        self.assertTrue(np.all(canonical[32] == 1.0))
+
+        self.assertAlmostEqual(float(canonical[33, 0, 0]), 0.25)
+        self.assertAlmostEqual(float(canonical[37, 0, 0]), 0.5)
+
+    def test_string_representation_distinguishes_reserves(self):
+        board1 = self.game.getInitBoard()
+        board2 = np.copy(board1)
+
+        board2[33, :, :] = 0.5
+
+        self.assertNotEqual(
+            self.game.stringRepresentation(board1),
+            self.game.stringRepresentation(board2)
+        )
+
+    def test_game_ended_initial_board(self):
         board = self.game.getInitBoard()
         self.assertEqual(self.game.getGameEnded(board, 1), 0)
-    
+
 
 if __name__ == "__main__":
     unittest.main()

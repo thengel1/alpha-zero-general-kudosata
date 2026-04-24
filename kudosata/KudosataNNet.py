@@ -11,7 +11,7 @@ class KudosataNNet(nn.Module):
 
         super(KudosataNNet, self).__init__()
 
-        self.conv1 = nn.Conv2d(33, args.num_channels, 3, stride=1, padding=1)
+        self.conv1 = nn.Conv2d(41, args.num_channels, 3, stride=1, padding=1)
         self.bn1 = nn.BatchNorm2d(args.num_channels)
 
         self.res_layers = nn.ModuleList([

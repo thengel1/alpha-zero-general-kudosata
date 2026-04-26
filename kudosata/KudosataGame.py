@@ -320,8 +320,18 @@ class KudosataGame(Game):
         l = []
 
         l += [(board, pi_np.flatten())]
-
+        
+        # Flip board horizontaly
         new_b = np.flip(board, axis=2)
+        
+        east_layers_idx = [i for i in range(32) if i % 4 == 1]
+        west_layers_idx = [i for i in range(32) if i % 4 == 2]
+        temp_east_layers = np.copy(new_b[east_layers_idx])
+        new_b[east_layers_idx] = new_b[west_layers_idx]
+        new_b[west_layers_idx] = temp_east_layers
+        
+        
+        # Flip pi horizontaly
         new_pi = np.flip(pi_reshaped, axis=1)
 
         east_pi = np.copy(new_pi[:, :, 1, :])
@@ -329,6 +339,7 @@ class KudosataGame(Game):
 
         new_pi[:, :, 1, :] = west_pi
         new_pi[:, :, 2, :] = east_pi
+        
 
         l += [(new_b, new_pi.flatten())]
 

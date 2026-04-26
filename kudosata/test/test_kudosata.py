@@ -178,7 +178,99 @@ class TestKudosataGame(unittest.TestCase):
     def test_game_ended_initial_board(self):
         board = self.game.getInitBoard()
         self.assertEqual(self.game.getGameEnded(board, 1), 0)
+        
+        
+    def test_getSymmetries_board_flip(self):
+        game = KudosataGame(k.BoardSize.SMALL)
+        board_init = k.Board(k.BoardSize.SMALL)
 
+        # Initial : RED, NORMAL, EAST, left side (x=1, y=0)
+        t_id_init = k.TriangleID(k.SquareCoord(1, 0), k.Direction.EAST)
+        board_init.place_triangle(t_id_init, k.Color.RED, k.TriangleType.NORMAL, True)
+
+        # Expected : RED, NORMAL, WEST, right side (x=1, y=2)
+        p_expected, t_expected, d_expected, x_expected, y_expected = 0, 0, 2, 1, 2
+        
+        # layer = 16 * player + 4 * type + dir
+        layer_expected = 2
+
+        state_init = game.getEncodedState(board_init, 1)
+
+        pi_dummy = np.zeros(game.getActionSize(), dtype=np.float32)
+
+        symm_forms = game.getSymmetries(state_init, pi_dummy)
+        self.assertEqual(len(symm_forms), 2)
+        
+        state_original, _ = symm_forms[0]
+        state_symm, _ = symm_forms[1]
+
+        np.testing.assert_array_equal(state_original, state_init)
+        
+        layer_symm, x_symm, y_symm  = np.argwhere(state_symm[:32] == 1.0)[0]
+        p_symm = layer_symm // 16
+        t_symm = (layer_symm % 16) // 4
+        d_symm = layer_symm % 4
+        
+        self.assertEqual(x_symm, x_expected)
+        self.assertEqual(y_symm, y_expected)
+        self.assertEqual(layer_symm, layer_expected)
+        
+        self.assertEqual(p_symm, p_expected)
+        self.assertEqual(t_symm, t_expected)
+        self.assertEqual(d_symm, d_expected)
+        
+    def test_getSymmetries_pi_vector(self):
+        game = KudosataGame(k.BoardSize.SMALL)
+        initial_pi = np.zeros(game.getActionSize(), dtype=np.float32)
+        
+        # A : left side, EAST (1)
+        # should end up on the right side, and WEST direction (2)
+        a_x, a_y, a_dir, a_type = 0, 0, 1, 0
+        exp_a_x, exp_a_y, exp_a_dir, exp_a_type = 0, 2, 2, 0
+        idx_a = game.encode_action(a_x, a_y, a_dir, a_type)
+        exp_idx_a = game.encode_action(exp_a_x, exp_a_y, exp_a_dir, exp_a_type)
+        
+        a_prob = 0.5 # Arbitrary value
+        initial_pi[idx_a] = a_prob
+        
+        # B : right side, WEST (2)
+        # should end up on the left side, and EAST direction (1)
+        b_x, b_y, b_dir, b_type = 2, 2, 2, 0
+        exp_b_x, exp_b_y, exp_b_dir, exp_b_type = 2, 0, 1, 0
+        idx_b = game.encode_action(b_x, b_y, b_dir, b_type)
+        exp_idx_b = game.encode_action(exp_b_x, exp_b_y, exp_b_dir, exp_b_type)
+        
+        b_prob = 0.3 # arbitrary value
+        initial_pi[idx_b] = b_prob
+        
+        #C : centered, NORTH (0)
+        # should stay in the same position
+        c_x, c_y, c_dir, c_type = 1, 1, 0, 0
+        idx_c = game.encode_action(c_x, c_y, c_dir, c_type)
+        
+        c_prob = 0.2 # arbitrary value
+        initial_pi[idx_c] = c_prob
+        
+
+        dummy_board = game.getInitBoard()
+        symm_forms = game.getSymmetries(dummy_board, initial_pi)
+        
+        _, original_pi = symm_forms[0]
+        _, sym_pi = symm_forms[1]
+        
+        np.testing.assert_array_equal(original_pi, initial_pi)
+        
+        self.assertAlmostEqual(sym_pi[exp_idx_a], a_prob)
+        self.assertEqual(sym_pi[idx_a], 0.0)
+        
+        self.assertAlmostEqual(sym_pi[exp_idx_b], b_prob)
+        self.assertEqual(sym_pi[idx_b], 0.0)
+        
+        self.assertAlmostEqual(sym_pi[idx_c], c_prob)
+        
+        exp_sum = a_prob + b_prob + c_prob
+        self.assertAlmostEqual(sum(sym_pi), exp_sum)
+        
 
 if __name__ == "__main__":
     unittest.main()

@@ -304,8 +304,7 @@ class KudosataGame(Game):
 
         Returns:
             symmForms: a list of [(board,pi)] where each tuple is a symmetrical
-                       form of the board and the corresponding pi vector. This
-                       is used when training the neural network from examples.
+                       form of the board and the corresponding pi vector.
         """
         pi_np = np.array(pi)
         n_dirs = 4
@@ -313,36 +312,48 @@ class KudosataGame(Game):
         expected_size = self.n * self.n * n_dirs * n_types
         if pi_np.size != expected_size:
             log.error(f"Taille incorrecte pour pi: {pi_np.size}, attendu {expected_size}")
-
             return [(board, pi)]
+            
         pi_reshaped = pi_np.reshape((self.n, self.n, n_dirs, n_types))
-
         l = []
 
+        # original
         l += [(board, pi_np.flatten())]
         
-        # Flip board horizontaly
-        new_b = np.flip(board, axis=2)
+        # horizontal flip
+        board_h = np.flip(board, axis=2).copy() 
         
         east_layers_idx = [i for i in range(32) if i % 4 == 1]
         west_layers_idx = [i for i in range(32) if i % 4 == 2]
-        temp_east_layers = np.copy(new_b[east_layers_idx])
-        new_b[east_layers_idx] = new_b[west_layers_idx]
-        new_b[west_layers_idx] = temp_east_layers
+        temp_east_layers = np.copy(board_h[east_layers_idx])
+        board_h[east_layers_idx] = board_h[west_layers_idx]
+        board_h[west_layers_idx] = temp_east_layers
         
+        pi_h = np.flip(pi_reshaped, axis=1).copy()
+        east_pi = np.copy(pi_h[:, :, 1, :])
+        west_pi = np.copy(pi_h[:, :, 2, :])
+        pi_h[:, :, 1, :] = west_pi
+        pi_h[:, :, 2, :] = east_pi
         
-        # Flip pi horizontaly
-        new_pi = np.flip(pi_reshaped, axis=1)
+        l += [(board_h, pi_h.flatten())]
 
-        east_pi = np.copy(new_pi[:, :, 1, :])
-        west_pi = np.copy(new_pi[:, :, 2, :])
-
-        new_pi[:, :, 1, :] = west_pi
-        new_pi[:, :, 2, :] = east_pi
+        # vertical flip
+        board_v = np.flip(board, axis=1).copy()
         
-
-        l += [(new_b, new_pi.flatten())]
-
+        north_layers_idx = [i for i in range(32) if i % 4 == 0]
+        south_layers_idx = [i for i in range(32) if i % 4 == 3]
+        temp_north_layers = np.copy(board_v[north_layers_idx])
+        board_v[north_layers_idx] = board_v[south_layers_idx]
+        board_v[south_layers_idx] = temp_north_layers
+        
+        pi_v = np.flip(pi_reshaped, axis=0).copy()
+        north_pi = np.copy(pi_v[:, :, 0, :])
+        south_pi = np.copy(pi_v[:, :, 3, :])
+        pi_v[:, :, 0, :] = south_pi
+        pi_v[:, :, 3, :] = north_pi
+        
+        l += [(board_v, pi_v.flatten())]
+        
         return l
 
     def stringRepresentation(self, board):

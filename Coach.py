@@ -13,6 +13,10 @@ from MCTS import MCTS
 
 log = logging.getLogger(__name__)
 
+# sys.path.append('kudosata')
+# sys.path.append('.')
+# from kudosata import openxum_kudosata as k
+
 
 class Coach():
     """
@@ -84,6 +88,7 @@ class Coach():
         It then pits the new neural network against the old one and accepts it
         only if it wins >= updateThreshold fraction of games.
         """
+        os.makedirs(self.args.checkpoint, exist_ok=True)
 
         for i in range(1, self.args.numIters + 1):
             log.info(f'Starting Iter #{i} ...')

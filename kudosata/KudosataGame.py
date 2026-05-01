@@ -1,5 +1,6 @@
 import sys
 import numpy as np
+import time
 
 from Coach import log
 
@@ -21,7 +22,7 @@ class KudosataGame(Game):
 
     See othello/OthelloGame.py for an example implementation.
     """
-    def __init__(self, board_size: k.BoardSize = k.BoardSize.MEDIUM):
+    def __init__(self, board_size: k.BoardSize = k.BoardSize.SMALL):
         self.board_size = board_size
         self.n = 3 if board_size == k.BoardSize.SMALL else 6 if board_size == k.BoardSize.MEDIUM else 9
 
@@ -186,8 +187,8 @@ class KudosataGame(Game):
         next_board_obj = current_board_obj.get_next_state(
             int(x),
             int(y),
-            int(dir_idx),
-            int(type_idx),
+            direction,
+            t_type,
             color
         )
 
@@ -208,11 +209,18 @@ class KudosataGame(Game):
 
         engine_board = self.translate_matrix_to_board(state_board)
         current_color = k.Color.RED if state_player == 1 else k.Color.YELLOW
+        
+        engine = k.Engine(int(self.board_size), int(k.Color.RED))
+        remaining = engine.remaining_triangle_count(engine_board)
+        player_reserves = remaining[current_color]
 
         for x in range(self.n):
             for y in range(self.n):
                 for dir_idx, direction in enumerate(self.directions):
                     for type_idx, t_type in enumerate(self.types):
+                        
+                        if player_reserves[t_type] <= 0:
+                            continue
 
                         t_id = k.TriangleID(
                             k.SquareCoord(int(x), int(y)),
@@ -237,28 +245,32 @@ class KudosataGame(Game):
                small non-zero value for draw.
                
         """
+        
+        valid_moves = self.getValidMoves(board, player)
+        if valid_moves.sum() == 0:
+            return 0.01
+        
         engine_board = self.translate_matrix_to_board(board)
         engine = k.Engine()
         engine.parse(engine_board.to_string())
+        
+        if not engine.is_finished():
+            return 0
 
-        if engine.is_finished():
+        try:
+            engine_winner = engine.winner_is() #0 for RED, 1 for YELLOW, -1 for draw
+        except TypeError:
+            engine_winner = engine.winner_is(engine_board)
 
-            try:
-                engine_winner = engine.winner_is()
-            except TypeError:
-                engine_winner = engine.winner_is(engine_board)
-
-            if engine_winner == -1: return 0.01
-
-            current_player_color = k.Color.RED if player == 1 else k.Color.YELLOW
-            return 1 if engine_winner == self.color_idx[current_player_color] else -1
-
-        if np.count_nonzero(board[:32]) >= (self.n * self.n * 4 * 0.9):
+        if engine_winner == -1:
             return 0.01
 
-        return 0
-
-
+        current_player_color = k.Color.RED if player == 1 else k.Color.YELLOW
+        
+        if engine_winner == self.color_idx[current_player_color]:
+            return 1
+        else:
+            return -1
 
 
     def getCanonicalForm(self, board, player):

@@ -184,6 +184,27 @@ class KudosataGame(Game):
         direction = self.directions[dir_idx]
         t_type = self.types[type_idx]
 
+        t_id = k.TriangleID(
+            k.SquareCoord(int(x), int(y)),
+            direction
+        )
+
+        engine = k.Engine(int(self.board_size), int(k.Color.RED))
+
+        remaining = engine.remaining_triangle_count(current_board_obj)
+
+        if remaining[color][t_type] <= 0:
+            raise ValueError(
+                f"INVALID ACTION: no reserve left | player={player}, color={color}, type={t_type}, action={action}"
+            )
+
+        if not current_board_obj.is_valid_to_place(t_id, color, t_type):
+            raise ValueError(
+                f"INVALID ACTION: cannot place | x={x}, y={y}, dir={direction}, type={t_type}, color={color}, action={action}"
+            )
+
+        before = current_board_obj.to_string()
+
         next_board_obj = current_board_obj.get_next_state(
             int(x),
             int(y),
@@ -192,6 +213,23 @@ class KudosataGame(Game):
             color
         )
 
+        after = next_board_obj.to_string()
+
+        if before == after:
+            raise ValueError(
+                f"BOARD DID NOT CHANGE after action={action} | x={x}, y={y}, dir={direction}, type={t_type}, color={color}"
+            )
+
+        remaining_after = engine.remaining_triangle_count(next_board_obj)
+
+        if remaining_after[color][t_type] >= remaining[color][t_type]:
+            raise ValueError(
+                f"RESERVE DID NOT DECREASE | "
+                f"player={player}, color={color}, type={t_type}, action={action}, "
+                f"x={x}, y={y}, dir={direction}, "
+                f"before={remaining[color][t_type]}, "
+                f"after={remaining_after[color][t_type]}"
+            )
         return self.getEncodedState(next_board_obj, -player), -player
 
     def getValidMoves(self, state_board, state_player):
@@ -245,32 +283,31 @@ class KudosataGame(Game):
                small non-zero value for draw.
                
         """
-        
-        valid_moves = self.getValidMoves(board, player)
-        if valid_moves.sum() == 0:
-            return 0.01
-        
         engine_board = self.translate_matrix_to_board(board)
-        engine = k.Engine()
+        engine = k.Engine(int(self.board_size), int(k.Color.RED))
         engine.parse(engine_board.to_string())
-        
-        if not engine.is_finished():
-            return 0
 
-        try:
-            engine_winner = engine.winner_is() #0 for RED, 1 for YELLOW, -1 for draw
-        except TypeError:
-            engine_winner = engine.winner_is(engine_board)
+        remaining = engine.remaining_triangle_count(engine_board)
+        current_color = k.Color.RED if player == 1 else k.Color.YELLOW
+        player_reserve_total = sum(remaining[current_color][t] for t in self.types)
 
-        if engine_winner == -1:
-            return 0.01
+        valid_moves = self.getValidMoves(board, player)
 
-        current_player_color = k.Color.RED if player == 1 else k.Color.YELLOW
-        
-        if engine_winner == self.color_idx[current_player_color]:
-            return 1
-        else:
-            return -1
+        if engine.is_finished() or player_reserve_total <= 0 or valid_moves.sum() == 0:
+            try:
+                engine_winner = engine.winner_is()
+            except TypeError:
+                engine_winner = engine.winner_is(engine_board)
+
+            if engine_winner == -1:
+                return 0.01
+
+            if engine_winner == self.color_idx[current_color]:
+                return 1
+            else:
+                return -1
+
+        return 0
 
 
     def getCanonicalForm(self, board, player):

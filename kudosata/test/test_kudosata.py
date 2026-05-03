@@ -175,6 +175,83 @@ class TestKudosataGame(unittest.TestCase):
             self.game.stringRepresentation(board2)
         )
 
+    def test_50_mcts_episodes_full_debug(self):
+        from MCTS import MCTS
+        from kudosata.NNetWrapper import NNetWrapper
+        from utils import dotdict
+
+        game = KudosataGame(k.BoardSize.SMALL)
+        nnet = NNetWrapper(game)
+
+        args = dotdict({
+            'numMCTSSims': 50,
+            'cpuct': 1,
+            'tempThreshold' : 30,
+        })
+
+        for episode in range(50):
+            board = game.getInitBoard()
+            player = 1
+
+            seen_states = {}
+            history = []
+            last_action = None
+
+            for step in range(1, 501):
+                state_key = game.stringRepresentation(board)
+
+                repeated_state = state_key in seen_states
+                seen_states[state_key] = step
+
+                if game.getGameEnded(board, player) != 0:
+                    break
+
+                canonical = game.getCanonicalForm(board, player)
+
+                mcts = MCTS(game, nnet, args)
+                pi = np.array(mcts.getActionProb(canonical, temp=0))
+
+                if repeated_state:
+                    valids = game.getValidMoves(canonical,1)
+                    valid_actions = np.where(valids == 1)[0]
+
+                    self.assertGreater(len(valid_actions),0)
+
+                    if last_action is not None:
+                        valid_actions = [a for a in valid_actions if a != last_action["action"]]
+
+                    action = int(np.random.choice(valid_actions))
+                else:
+                    action = int(np.random.choice(len(pi), p=pi))
+
+                x, y, dir_idx, type_idx = game.decode_action(action)
+
+                history.append({
+                    "step": step,
+                    "player_before": player,
+                    "action": action,
+                    "x": x,
+                    "y": y,
+                    "dir_idx": dir_idx,
+                    "type_idx": type_idx,
+                })
+
+                last_action = history[-1]
+
+                board, player = game.getNextState(board, player, action)
+
+            self.assertLess(
+                step,
+                500,
+                msg=(
+                    f"Episode reached 500 steps | episode={episode}\n"
+                    f"player={player}\n"
+                    f"valid_moves={game.getValidMoves(board, player).sum()}\n"
+                    f"reserve_layers={board[33:41, 0, 0]}\n"
+                    f"history_last_20={history[-20:]}"
+                )
+            )
+
     def test_game_ended_initial_board(self):
         board = self.game.getInitBoard()
         self.assertEqual(self.game.getGameEnded(board, 1), 0)

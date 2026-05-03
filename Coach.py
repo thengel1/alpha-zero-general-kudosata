@@ -53,6 +53,8 @@ class Coach():
         board = self.game.getInitBoard()
         self.curPlayer = 1
         episodeStep = 0
+        seen_states = set()
+        last_action = None
 
         while True:
             episodeStep += 1
@@ -65,6 +67,11 @@ class Coach():
                 log.info(f"Episode step {episodeStep}")
 
             canonicalBoard = self.game.getCanonicalForm(board, self.curPlayer)
+            state_key = self.game.stringRepresentation(canonicalBoard)
+
+            repeated_state = state_key in seen_states
+            seen_states.add(state_key)
+
             temp = int(episodeStep < self.args.tempThreshold)
 
             pi = self.mcts.getActionProb(canonicalBoard, temp=temp)
@@ -72,13 +79,36 @@ class Coach():
             for b, p in sym:
                 trainExamples.append([b, self.curPlayer, p, None])
 
-            action = np.random.choice(len(pi), p=pi)
+            if repeated_state:
+                log.warning(f"Repeated state detected at step {episodeStep}: forcing exploration")
+
+                valids = self.game.getValidMoves(canonicalBoard, 1)
+                valid_actions = np.where(valids == 1)[0]
+
+                if len(valid_actions) == 0:
+                    return [(x[0], x[2], 0.01) for x in trainExamples]
+
+                if last_action is not None:
+                    filtered_actions = [a for a in valid_actions if a != last_action]
+
+                    if len(filtered_actions) > 0:
+                        valid_actions = filtered_actions
+
+                action = int(np.random.choice(valid_actions))
+            else:
+                action = int(np.random.choice(len(pi), p=pi))
+
+            last_action = action
+
             board, self.curPlayer = self.game.getNextState(board, self.curPlayer, action)
 
             r = self.game.getGameEnded(board, self.curPlayer)
-
             if r != 0:
-                return [(x[0], x[2], r * ((-1) ** (x[1] != self.curPlayer))) for x in trainExamples]
+                log.info(f"Game ended naturally at step {episodeStep} with result {r}")
+                return [
+                    (x[0], x[2], r * ((-1) ** (x[1] != self.curPlayer)))
+                    for x in trainExamples
+                ]
 
     def learn(self):
         """
@@ -100,6 +130,7 @@ class Coach():
                     iterationTrainExamples += self.executeEpisode()
 
                 self.trainExamplesHistory.append(iterationTrainExamples)
+                self.saveTrainExamples(i)
 
             if len(self.trainExamplesHistory) > self.args.numItersForTrainExamplesHistory:
                 log.warning(
@@ -119,13 +150,32 @@ class Coach():
             self.nnet.train(trainExamples)
             nmcts = MCTS(self.game, self.nnet, self.args)
 
-            log.info('Skipping Arena (debug mode) : saving model directly')
+            log.info('PITTING AGAINST PREVIOUS VERSION')
 
-            self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')
-            self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pth.tar')
+            arena = Arena(
+                lambda x: np.argmax(pmcts.getActionProb(x, temp=0)),
+                lambda x: np.argmax(nmcts.getActionProb(x, temp=0)),
+                self.game
+            )
 
-            log.info('Model saved (no comparison)')
-            continue
+            pwins, nwins, draws = arena.playGames(self.args.arenaCompare)
+
+            log.info('NEW/PREV WINS : %d / %d ; DRAWS : %d', nwins, pwins, draws)
+
+            if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:
+                log.info('REJECTING NEW MODEL')
+                self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')
+            else:
+                log.info('ACCEPTING NEW MODEL')
+                self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pth.tar')
+
+            # log.info('Skipping Arena (debug mode) : saving model directly')
+            #
+            # self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')
+            # self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pth.tar')
+            #
+            # log.info('Model saved (no comparison)')
+            # continue
 
     def getCheckpointFile(self, iteration):
         return 'checkpoint_' + str(iteration) + '.pth.tar'

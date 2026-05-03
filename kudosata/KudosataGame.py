@@ -220,16 +220,6 @@ class KudosataGame(Game):
                 f"BOARD DID NOT CHANGE after action={action} | x={x}, y={y}, dir={direction}, type={t_type}, color={color}"
             )
 
-        remaining_after = engine.remaining_triangle_count(next_board_obj)
-
-        if remaining_after[color][t_type] >= remaining[color][t_type]:
-            raise ValueError(
-                f"RESERVE DID NOT DECREASE | "
-                f"player={player}, color={color}, type={t_type}, action={action}, "
-                f"x={x}, y={y}, dir={direction}, "
-                f"before={remaining[color][t_type]}, "
-                f"after={remaining_after[color][t_type]}"
-            )
         return self.getEncodedState(next_board_obj, -player), -player
 
     def getValidMoves(self, state_board, state_player):

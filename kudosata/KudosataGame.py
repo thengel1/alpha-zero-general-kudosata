@@ -288,26 +288,36 @@ class KudosataGame(Game):
         engine.parse(engine_board.to_string())
 
         remaining = engine.remaining_triangle_count(engine_board)
+
         current_color = k.Color.RED if player == 1 else k.Color.YELLOW
-        player_reserve_total = sum(remaining[current_color][t] for t in self.types)
 
         valid_moves = self.getValidMoves(board, player)
 
-        if engine.is_finished() or player_reserve_total <= 0 or valid_moves.sum() == 0:
-            try:
-                engine_winner = engine.winner_is()
-            except TypeError:
-                engine_winner = engine.winner_is(engine_board)
+        current_reserve_total = sum(
+            remaining[current_color][t] for t in self.types
+        )
 
-            if engine_winner == -1:
-                return 0.01
+        game_should_end = (
+                engine.is_finished()
+                or current_reserve_total <= 0
+                or valid_moves.sum() == 0
+        )
 
-            if engine_winner == self.color_idx[current_color]:
-                return 1
-            else:
-                return -1
+        if not game_should_end:
+            return 0
 
-        return 0
+        red_gain = engine.gain(k.Color.RED, True)
+        yellow_gain = engine.gain(k.Color.YELLOW, True)
+
+        if red_gain == yellow_gain:
+            return 0.01
+
+        winner_color = k.Color.RED if red_gain > yellow_gain else k.Color.YELLOW
+
+        if winner_color == current_color:
+            return 1
+        else:
+            return -1
 
 
     def getCanonicalForm(self, board, player):

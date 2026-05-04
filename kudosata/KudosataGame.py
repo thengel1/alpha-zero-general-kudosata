@@ -191,13 +191,14 @@ class KudosataGame(Game):
 
         engine = k.Engine(int(self.board_size), int(k.Color.RED))
 
-        remaining = engine.remaining_triangle_count(current_board_obj)
+        reserve_layer = 33 + type_idx if player == 1 else 37 + type_idx
+        reserve_before = float(state_board[reserve_layer, 0, 0])
 
-        if remaining[color][t_type] <= 0:
+        if reserve_before <= 0:
             raise ValueError(
-                f"INVALID ACTION: no reserve left | player={player}, color={color}, type={t_type}, action={action}"
+                f"INVALID ACTION: no reserve left | "
+                f"player={player}, color={color}, type={t_type}, action={action}"
             )
-
         if not current_board_obj.is_valid_to_place(t_id, color, t_type):
             raise ValueError(
                 f"INVALID ACTION: cannot place | x={x}, y={y}, dir={direction}, type={t_type}, color={color}, action={action}"
@@ -219,8 +220,17 @@ class KudosataGame(Game):
             raise ValueError(
                 f"BOARD DID NOT CHANGE after action={action} | x={x}, y={y}, dir={direction}, type={t_type}, color={color}"
             )
+        next_state = self.getEncodedState(next_board_obj, -player)
 
-        return self.getEncodedState(next_board_obj, -player), -player
+        next_state[33:41] = state_board[33:41]
+
+        max_count = self.max_remaining[color][t_type]
+        decrement = 0.0 if max_count == 0 else 1.0 / max_count
+
+        reserve_after = max(0.0, reserve_before - decrement)
+        next_state[reserve_layer, :, :] = reserve_after
+
+        return next_state, -player
 
     def getValidMoves(self, state_board, state_player):
         """
@@ -237,17 +247,16 @@ class KudosataGame(Game):
 
         engine_board = self.translate_matrix_to_board(state_board)
         current_color = k.Color.RED if state_player == 1 else k.Color.YELLOW
-        
-        engine = k.Engine(int(self.board_size), int(k.Color.RED))
-        remaining = engine.remaining_triangle_count(engine_board)
-        player_reserves = remaining[current_color]
 
         for x in range(self.n):
             for y in range(self.n):
                 for dir_idx, direction in enumerate(self.directions):
                     for type_idx, t_type in enumerate(self.types):
-                        
-                        if player_reserves[t_type] <= 0:
+
+                        reserve_layer = 33 + type_idx if state_player == 1 else 37 + type_idx
+                        reserve_value = float(state_board[reserve_layer, 0, 0])
+
+                        if reserve_value <= 0:
                             continue
 
                         t_id = k.TriangleID(

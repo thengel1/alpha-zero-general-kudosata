@@ -1,6 +1,7 @@
 import sys
 import numpy as np
 import time
+import copy
 
 from Coach import log
 
@@ -39,11 +40,11 @@ class KudosataGame(Game):
         engine = k.Engine(int(self.board_size), int(k.Color.RED))
         self.max_remaining = engine.remaining_triangle_count(empty_board)
 
+    
     """
     Utility function
     """
-    def getEncodedState(self, engine_board, state_player):
-
+    def getEncodedState(self, engine_board, state_player, current_reserves=None):
         state = np.zeros((41, self.n, self.n), dtype=np.float32)
 
         for x in range(self.n):
@@ -59,24 +60,24 @@ class KudosataGame(Game):
 
                         layer = (self.color_idx[color] * 16) + (self.type_idx[triangle_type] * 4) + self.dir_idx[direction]
                         state[layer][x][y] = 1.0
-
+                        
         state[32][:, :] = state_player
 
-        engine = k.Engine(int(self.board_size), int(k.Color.RED))
-        remaining = engine.remaining_triangle_count(engine_board)
+        if current_reserves is None:
+            current_reserves = copy.deepcopy(self.max_remaining)
 
         for color in self.colors:
             c_idx = self.color_idx[color]
-
+            
             for t_type in self.types:
+                
                 t_idx = self.type_idx[t_type]
-
                 layer = 33 + c_idx * 4 + t_idx
 
                 max_count = self.max_remaining[color][t_type]
-                current_count = remaining[color][t_type]
+                count = current_reserves[color][t_type]
 
-                value = 0.0 if max_count == 0 else current_count / max_count
+                value = 0.0 if max_count == 0 else count / max_count
                 state[layer, :, :] = value
 
         return state
@@ -100,8 +101,6 @@ class KudosataGame(Game):
             board_obj.place_triangle(k.TriangleID(k.SquareCoord(int(x), int(y)), direction), color, t_type, True)
         return board_obj
     
-    # def encodedStateToBoard(board):
-    #     return None
 
     """
     Utility function
@@ -111,35 +110,33 @@ class KudosataGame(Game):
             k.SquareCoord(int(x), int(y)),
             self.directions[orientation_idx]
         )
-
     
-    # def getActionIdx(self, x, y, t_orientation, t_type):
-    #     board_size = int(self.board_size)
-    #     n_action_per_square = 16
-    #     n_action_per_row = board_size * n_action_per_square
+    """
+    Utility function
+    """
+    def update_reserves(self, current_reserves, t_type, player):
+        new_reserves = copy.deepcopy(current_reserves)
+        color = k.Color.RED if player == 1 else k.Color.YELLOW
+        new_reserves[color][t_type] -= 1
+        # else:
+            # raise ValueError(f"INVALID ACTION : {t_type} for player {player} was played but its reserve is empty")
 
-    #     return x * n_action_per_row + y * n_action_per_square + t_type * 4 + t_orientation
+        return new_reserves
     
-
-    # def getActionFromIdx(self, idx):
-    #     board_size = int(self.board_size)
-    #     n_action_per_square = 16
-    #     n_action_per_row = board_size * n_action_per_square
-
-    #     t_orientation = idx % 4
-    #     t_type = (idx // 4) % 4
-    #     y = (idx // n_action_per_square) % board_size
-    #     x = (idx // n_action_per_row)
-
-    #    return (x, y, t_orientation, t_type)
-    
-    # def getEngineAction(self, x, y, orientation_idx, type_idx, player_idx):
-    #     t_id = self.getEngineTriangleID(x, y, orientation_idx)
-    #     color = self.colors[player_idx]
-    #     type = self.type[type_idx]
-
-    #     return (t_id, type, color)
-
+    def retrieve_reserves(self, state_board):
+        reserves = {k.Color.RED: {}, k.Color.YELLOW: {}}
+        for c in self.colors:
+            c_idx = self.color_idx[c]
+            for t in self.types:
+                t_idx = self.type_idx[t]
+                layer = 33 + c_idx * 4 + t_idx
+                
+                max_count = self.max_remaining[c][t]
+                current_count = int(round(float(state_board[layer, 0, 0]) * max_count))
+                reserves[c][t] = current_count
+        
+        return reserves
+        
 
 
     def getInitBoard(self):
@@ -164,8 +161,7 @@ class KudosataGame(Game):
             actionSize: number of all possible actions
         """
         return self.n * self.n * 4 * 4
-
-
+    
     def getNextState(self, state_board, player, action):
         """
         Input:
@@ -184,51 +180,35 @@ class KudosataGame(Game):
         direction = self.directions[dir_idx]
         t_type = self.types[type_idx]
 
-        t_id = k.TriangleID(
-            k.SquareCoord(int(x), int(y)),
-            direction
-        )
+        current_reserves = self.retrieve_reserves(state_board)
 
-        engine = k.Engine(int(self.board_size), int(k.Color.RED))
-
-        reserve_layer = 33 + type_idx if player == 1 else 37 + type_idx
-        reserve_before = float(state_board[reserve_layer, 0, 0])
-
-        if reserve_before <= 0:
-            raise ValueError(
-                f"INVALID ACTION: no reserve left | "
-                f"player={player}, color={color}, type={t_type}, action={action}"
-            )
+        if current_reserves[color][t_type] <= 0:
+            raise ValueError(f"INVALID ACTION: no reserve left for {color} {t_type}")
+        
+        t_id = k.TriangleID(k.SquareCoord(int(x), int(y)), direction)
+        
         if not current_board_obj.is_valid_to_place(t_id, color, t_type):
             raise ValueError(
                 f"INVALID ACTION: cannot place | x={x}, y={y}, dir={direction}, type={t_type}, color={color}, action={action}"
             )
+            
+        new_reserves = self.update_reserves(current_reserves, t_type, player)
 
-        before = current_board_obj.to_string()
-
+        # 4. Gameplay normal
+       
         next_board_obj = current_board_obj.get_next_state(
-            int(x),
-            int(y),
-            direction,
-            t_type,
-            color
+            int(x), int(y), direction, t_type, color
         )
+        
+        # before = current_board_obj.to_string()
+        # after = next_board_obj.to_string()
 
-        after = next_board_obj.to_string()
+        # if before == after:
+        #     raise ValueError(
+        #         f"BOARD DID NOT CHANGE after action : x={x}, y={y}, dir={direction}, type={t_type}, color={color} |\n previous board: {before} \n board after: {after}"
+            # )
 
-        if before == after:
-            raise ValueError(
-                f"BOARD DID NOT CHANGE after action={action} | x={x}, y={y}, dir={direction}, type={t_type}, color={color}"
-            )
-        next_state = self.getEncodedState(next_board_obj, -player)
-
-        next_state[33:41] = state_board[33:41]
-
-        max_count = self.max_remaining[color][t_type]
-        decrement = 0.0 if max_count == 0 else 1.0 / max_count
-
-        reserve_after = max(0.0, reserve_before - decrement)
-        next_state[reserve_layer, :, :] = reserve_after
+        next_state = self.getEncodedState(next_board_obj, -player, current_reserves=new_reserves)
 
         return next_state, -player
 
@@ -282,13 +262,8 @@ class KudosataGame(Game):
                small non-zero value for draw.
                
         """
-        engine_board = self.translate_matrix_to_board(board)
-        engine = k.Engine(int(self.board_size), int(k.Color.RED))
-        engine.parse(engine_board.to_string())
-
-        remaining = engine.remaining_triangle_count(engine_board)
-
         current_color = k.Color.RED if player == 1 else k.Color.YELLOW
+        remaining = self.retrieve_reserves(board)
 
         valid_moves = self.getValidMoves(board, player)
 
@@ -297,13 +272,17 @@ class KudosataGame(Game):
         )
 
         game_should_end = (
-                engine.is_finished()
-                or current_reserve_total <= 0
-                or valid_moves.sum() == 0
+                current_reserve_total <= 0
+                or sum(valid_moves) == 0
         )
 
         if not game_should_end:
             return 0
+        
+        engine_board = self.translate_matrix_to_board(board)
+        engine = k.Engine(int(self.board_size), int(k.Color.RED))
+        engine.parse(engine_board.to_string())
+
 
         red_gain = engine.gain(k.Color.RED, True)
         yellow_gain = engine.gain(k.Color.YELLOW, True)

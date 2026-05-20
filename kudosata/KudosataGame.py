@@ -66,6 +66,16 @@ class KudosataGame(Game):
         if current_reserves is None:
             current_reserves = copy.deepcopy(self.max_remaining)
 
+            for x in range(self.n):
+                for y in range(self.n):
+                    for direction in self.directions:
+                        triangle_id = k.TriangleID(k.SquareCoord(x, y), direction)
+                        color = engine_board.get_triangle_color(triangle_id)
+
+                        if color != k.Color.NONE:
+                            triangle_type = engine_board.get_triangle_type(triangle_id)
+                            current_reserves[color][triangle_type] -= 1
+
         for color in self.colors:
             c_idx = self.color_idx[color]
             
@@ -117,10 +127,12 @@ class KudosataGame(Game):
     def update_reserves(self, current_reserves, t_type, player):
         new_reserves = copy.deepcopy(current_reserves)
         color = k.Color.RED if player == 1 else k.Color.YELLOW
-        new_reserves[color][t_type] -= 1
-        # else:
-            # raise ValueError(f"INVALID ACTION : {t_type} for player {player} was played but its reserve is empty")
+        if new_reserves[color][t_type] <= 0:
+            raise ValueError(
+                f"INVALID RESERVE UPDATE: no {t_type} left for {color}"
+            )
 
+        new_reserves[color][t_type] -= 1
         return new_reserves
     
     def retrieve_reserves(self, state_board):
@@ -161,7 +173,44 @@ class KudosataGame(Game):
             actionSize: number of all possible actions
         """
         return self.n * self.n * 4 * 4
-    
+
+    def validate_action(self, state_board, player, action):
+        if action < 0 or action >= self.getActionSize():
+            raise ValueError(f"INVALID ACTION INDEX: {action}")
+
+        x, y, dir_idx, type_idx = self.decode_action(action)
+
+        if not (0 <= x < self.n and 0 <= y < self.n):
+            raise ValueError(f"INVALID COORDINATES: x={x}, y={y}")
+
+        if not (0 <= dir_idx < len(self.directions)):
+            raise ValueError(f"INVALID DIRECTION INDEX: {dir_idx}")
+
+        if not (0 <= type_idx < len(self.types)):
+            raise ValueError(f"INVALID TYPE INDEX: {type_idx}")
+
+        color = k.Color.RED if player == 1 else k.Color.YELLOW
+        direction = self.directions[dir_idx]
+        t_type = self.types[type_idx]
+
+        reserves = self.retrieve_reserves(state_board)
+
+        if reserves[color][t_type] <= 0:
+            raise ValueError(
+                f"INVALID ACTION: no reserve left for color={color}, type={t_type}"
+            )
+
+        board_obj = self.translate_matrix_to_board(state_board)
+        t_id = k.TriangleID(k.SquareCoord(int(x), int(y)), direction)
+
+        if not board_obj.is_valid_to_place(t_id, color, t_type):
+            raise ValueError(
+                f"INVALID ACTION: cannot place x={x}, y={y}, "
+                f"dir={direction}, type={t_type}, color={color}, action={action}"
+            )
+
+        return x, y, dir_idx, type_idx, color, direction, t_type, reserves, board_obj
+
     def getNextState(self, state_board, player, action):
         """
         Input:
@@ -173,32 +222,25 @@ class KudosataGame(Game):
             nextBoard: board after applying action
             nextPlayer: player who plays in the next turn (should be -player)
         """
-        current_board_obj = self.translate_matrix_to_board(state_board)
-        x, y, dir_idx, type_idx = self.decode_action(action)
-
-        color = k.Color.RED if player == 1 else k.Color.YELLOW
-        direction = self.directions[dir_idx]
-        t_type = self.types[type_idx]
-
-        current_reserves = self.retrieve_reserves(state_board)
-
-        if current_reserves[color][t_type] <= 0:
-            raise ValueError(f"INVALID ACTION: no reserve left for {color} {t_type}")
-        
-        t_id = k.TriangleID(k.SquareCoord(int(x), int(y)), direction)
-        
-        if not current_board_obj.is_valid_to_place(t_id, color, t_type):
-            raise ValueError(
-                f"INVALID ACTION: cannot place | x={x}, y={y}, dir={direction}, type={t_type}, color={color}, action={action}"
-            )
+        (
+            x, y, dir_idx, type_idx,
+            color, direction, t_type,
+            current_reserves,
+            current_board_obj
+        ) = self.validate_action(state_board, player, action)
             
         new_reserves = self.update_reserves(current_reserves, t_type, player)
 
         # 4. Gameplay normal
        
         next_board_obj = current_board_obj.get_next_state(
-            int(x), int(y), direction, t_type, color
-        )
+        int(x),
+        int(y),
+        direction,
+        t_type,
+        color
+    )
+
         
         # before = current_board_obj.to_string()
         # after = next_board_obj.to_string()
@@ -227,16 +269,14 @@ class KudosataGame(Game):
 
         engine_board = self.translate_matrix_to_board(state_board)
         current_color = k.Color.RED if state_player == 1 else k.Color.YELLOW
+        reserves = self.retrieve_reserves(state_board)
 
         for x in range(self.n):
             for y in range(self.n):
                 for dir_idx, direction in enumerate(self.directions):
                     for type_idx, t_type in enumerate(self.types):
 
-                        reserve_layer = 33 + type_idx if state_player == 1 else 37 + type_idx
-                        reserve_value = float(state_board[reserve_layer, 0, 0])
-
-                        if reserve_value <= 0:
+                        if reserves[current_color][t_type] <= 0:
                             continue
 
                         t_id = k.TriangleID(
@@ -271,12 +311,10 @@ class KudosataGame(Game):
             remaining[current_color][t] for t in self.types
         )
 
-        game_should_end = (
-                current_reserve_total <= 0
-                or sum(valid_moves) == 0
-        )
+        no_reserve_left = current_reserve_total <= 0
+        no_valid_moves = int(np.sum(valid_moves)) == 0
 
-        if not game_should_end:
+        if not (no_reserve_left or no_valid_moves):
             return 0
         
         engine_board = self.translate_matrix_to_board(board)
@@ -292,10 +330,7 @@ class KudosataGame(Game):
 
         winner_color = k.Color.RED if red_gain > yellow_gain else k.Color.YELLOW
 
-        if winner_color == current_color:
-            return 1
-        else:
-            return -1
+        return 1 if winner_color == current_color else -1
 
 
     def getCanonicalForm(self, board, player):

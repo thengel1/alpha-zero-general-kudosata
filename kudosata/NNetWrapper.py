@@ -10,9 +10,9 @@ from NeuralNet import NeuralNet
 
 class NNetWrapper(NeuralNet):
     def __init__(self, game):
-        self.args = type('Args', (), {'lr': 0.001, 'dropout': 0.3,'epochs': 1,
-                                      'batch_size': 32, 'cuda': torch.cuda.is_available(),
-                                      'num_channels': 64, 'depth': 4})()
+        self.args = type('Args', (), {'lr': 0.0005, 'dropout': 0.3,'epochs': 5,
+                                      'batch_size': 64, 'cuda': torch.cuda.is_available(),
+                                      'num_channels': 128, 'depth': 6})()
         self.nnet = nnet(game, self.args)
         if self.args.cuda:
             self.nnet.cuda()
@@ -80,10 +80,17 @@ class NNetWrapper(NeuralNet):
         return torch.exp(pi).data.cpu().numpy()[0], v.item()
 
     def save_checkpoint(self, folder, filename):
+        os.makedirs(folder, exist_ok=True)
         filepath = os.path.join(folder, filename)
         torch.save({'state_dict': self.nnet.state_dict()}, filepath)
 
     def load_checkpoint(self, folder, filename):
         filepath = os.path.join(folder, filename)
-        checkpoint = torch.load(filepath,map_location='cuda' if self.args.cuda else 'cpu')
+        if not os.path.isfile(filepath):
+            raise FileNotFoundError(f"No checkpoint found at {filepath}")
+
+        checkpoint = torch.load(
+            filepath,
+            map_location='cuda' if self.args.cuda else 'cpu'
+        )
         self.nnet.load_state_dict(checkpoint['state_dict'])

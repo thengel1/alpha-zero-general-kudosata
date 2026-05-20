@@ -169,7 +169,7 @@ class Coach():
             else:
                 log.info('ACCEPTING NEW MODEL')
                 self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pth.tar')
-                self.saveBestTrainExamples()
+            self.saveBestTrainExamples()
             # log.info('Skipping Arena (debug mode) : saving model directly')
             #
             # self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')

@@ -132,6 +132,7 @@ class Coach():
                 self.trainExamplesHistory.append(iterationTrainExamples)
                 self.saveTrainExamples(i)
 
+
             if len(self.trainExamplesHistory) > self.args.numItersForTrainExamplesHistory:
                 log.warning(
                     f"Removing the oldest entry in trainExamples. len(trainExamplesHistory) = {len(self.trainExamplesHistory)}")
@@ -168,7 +169,7 @@ class Coach():
             else:
                 log.info('ACCEPTING NEW MODEL')
                 self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pth.tar')
-
+                self.saveBestTrainExamples()
             # log.info('Skipping Arena (debug mode) : saving model directly')
             #
             # self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')
@@ -188,6 +189,18 @@ class Coach():
         with open(filename, "wb+") as f:
             Pickler(f).dump(self.trainExamplesHistory)
         f.closed
+
+    def saveBestTrainExamples(self):
+        folder = self.args.checkpoint
+        if not os.path.exists(folder):
+            os.makedirs(folder)
+
+        filename = os.path.join(folder, 'best.pth.tar.examples')
+
+        print("Saving best train examples...")
+
+        with open(filename, "wb+") as f:
+            Pickler(f).dump(self.trainExamplesHistory)
 
     def loadTrainExamples(self):
         modelFile = os.path.join(self.args.load_folder_file[0], self.args.load_folder_file[1])

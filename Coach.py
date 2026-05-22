@@ -11,6 +11,9 @@ from tqdm import tqdm
 from Arena import Arena
 from MCTS import MCTS
 
+import csv
+import time
+
 log = logging.getLogger(__name__)
 
 # sys.path.append('kudosata')
@@ -33,6 +36,27 @@ class Coach():
         self.trainExamplesHistory = []  # history of examples from args.numItersForTrainExamplesHistory latest iterations
         self.skipFirstSelfPlay = False  # can be overriden in loadTrainExamples()
 
+        self.study_file = os.path.join(self.args.checkpoint, "study_metrics.csv")
+
+        if not os.path.exists(self.args.checkpoint):
+            os.makedirs(self.args.checkpoint)
+
+        if not os.path.exists(self.study_file):
+            with open(self.study_file, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    "iteration",
+                    "num_examples",
+                    "avg_episode_len",
+                    "natural_ends",
+                    "forced_draws",
+                    "arena_new_wins",
+                    "arena_prev_wins",
+                    "arena_draws",
+                    "accepted",
+                    "duration_sec"
+                ])
+
     def executeEpisode(self):
         """
         This function executes one episode of self-play, starting with player 1.
@@ -49,6 +73,7 @@ class Coach():
                            pi is the MCTS informed policy vector, v is +1 if
                            the player eventually won the game, else -1.
         """
+        episode_moves = []
         trainExamples = []
         board = self.game.getInitBoard()
         self.curPlayer = 1
@@ -61,7 +86,17 @@ class Coach():
             max_steps = getattr(self.args, 'maxEpisodeSteps', 100)
             if episodeStep > max_steps:
                 log.warning(f"Episode stopped after {max_steps} steps: forced draw")
-                return [(x[0], x[2], 0.01) for x in trainExamples]
+
+                examples = [(x[0], x[2], 0.01) for x in trainExamples]
+                info = {
+                    "length": episodeStep,
+                    "forced_draw": True,
+                    "natural_end": False,
+                    "result": 0.01
+                }
+                self.save_visual_episode(episode_moves, episodeStep, 0)
+
+                return examples, info
 
             if episodeStep % 10 == 0:
                 log.info(f"Episode step {episodeStep}")
@@ -86,7 +121,14 @@ class Coach():
                 valid_actions = np.where(valids == 1)[0]
 
                 if len(valid_actions) == 0:
-                    return [(x[0], x[2], 0.01) for x in trainExamples]
+                    examples = [(x[0], x[2], 0.01) for x in trainExamples]
+                    info = {
+                        "length": episodeStep,
+                        "forced_draw": True,
+                        "natural_end": False,
+                        "result": 0.01
+                    }
+                    return examples, info
 
                 if last_action is not None:
                     filtered_actions = [a for a in valid_actions if a != last_action]
@@ -100,15 +142,30 @@ class Coach():
 
             last_action = action
 
+            try:
+                episode_moves.append(self.game.action_to_js_move(action, self.curPlayer))
+            except Exception:
+                episode_moves.append(str(action))
+
             board, self.curPlayer = self.game.getNextState(board, self.curPlayer, action)
 
             r = self.game.getGameEnded(board, self.curPlayer)
             if r != 0:
                 log.info(f"Game ended naturally at step {episodeStep} with result {r}")
-                return [
+                examples = [
                     (x[0], x[2], r * ((-1) ** (x[1] != self.curPlayer)))
                     for x in trainExamples
                 ]
+
+                info = {
+                    "length": episodeStep,
+                    "forced_draw": False,
+                    "natural_end": True,
+                    "result": r
+                }
+                self.save_visual_episode(episode_moves, episodeStep, r)
+
+                return examples, info
 
     def learn(self):
         """
@@ -122,12 +179,24 @@ class Coach():
 
         for i in range(1, self.args.numIters + 1):
             log.info(f'Starting Iter #{i} ...')
+            iter_start_time = time.time()
+            episode_lengths = []
+            natural_ends = 0
+            forced_draws = 0
             if not self.skipFirstSelfPlay or i > 1:
                 iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
 
                 for _ in tqdm(range(self.args.numEps), desc="Self Play"):
                     self.mcts = MCTS(self.game, self.nnet, self.args)  # reset search tree
-                    iterationTrainExamples += self.executeEpisode()
+                    examples, info = self.executeEpisode()
+                    iterationTrainExamples += examples
+
+                    episode_lengths.append(info["length"])
+
+                    if info["forced_draw"]:
+                        forced_draws += 1
+                    else:
+                        natural_ends += 1
 
                 self.trainExamplesHistory.append(iterationTrainExamples)
                 self.saveTrainExamples(i)
@@ -163,12 +232,17 @@ class Coach():
 
             log.info('NEW/PREV WINS : %d / %d ; DRAWS : %d', nwins, pwins, draws)
 
+            accepted = False
+
             if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:
                 log.info('REJECTING NEW MODEL')
                 self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')
             else:
                 log.info('ACCEPTING NEW MODEL')
+                accepted = True
+                self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i))
                 self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pth.tar')
+
             self.saveBestTrainExamples()
             # log.info('Skipping Arena (debug mode) : saving model directly')
             #
@@ -177,6 +251,23 @@ class Coach():
             #
             # log.info('Model saved (no comparison)')
             # continue
+            duration = time.time() - iter_start_time
+            avg_episode_len = sum(episode_lengths) / max(1, len(episode_lengths))
+
+            with open(self.study_file, "a", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    i,
+                    len(trainExamples),
+                    avg_episode_len,
+                    natural_ends,
+                    forced_draws,
+                    nwins,
+                    pwins,
+                    draws,
+                    int(accepted),
+                    duration
+                ])
 
     def getCheckpointFile(self, iteration):
         return 'checkpoint_' + str(iteration) + '.pth.tar'
@@ -197,7 +288,7 @@ class Coach():
 
         filename = os.path.join(folder, 'best.pth.tar.examples')
 
-        print("Saving best train examples...")
+        log.info("Saving best train examples...")
 
         with open(filename, "wb+") as f:
             Pickler(f).dump(self.trainExamplesHistory)
@@ -218,3 +309,24 @@ class Coach():
 
             # examples based on the model were already collected (loaded)
             self.skipFirstSelfPlay = True
+
+    def save_visual_episode(self, moves, steps, result):
+        import json
+        import time
+        import os
+
+        folder = os.path.join(self.args.checkpoint, "visual_selfplay")
+        os.makedirs(folder, exist_ok=True)
+
+        filename = os.path.join(folder, f"episode_{int(time.time() * 1000)}.json")
+
+        data = {
+            "game": "kudosata",
+            "board_size": "small",
+            "steps": steps,
+            "result": result,
+            "moves": moves
+        }
+
+        with open(filename, "w") as f:
+            json.dump(data, f, indent=2)

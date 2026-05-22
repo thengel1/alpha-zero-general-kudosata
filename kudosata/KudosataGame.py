@@ -453,3 +453,37 @@ class KudosataGame(Game):
         x = remaining // self.n
 
         return x, y, dir_idx, type_idx
+
+    def move_to_action(self, decision):
+        x = int(decision.to.coord.x)
+        y = int(decision.to.coord.y)
+        dir_idx = self.dir_idx[decision.to.direction]
+        type_idx = self.type_idx[decision.type]
+        return self.encode_action(x, y, dir_idx, type_idx)
+
+    def action_to_decision(self, action, player):
+        x, y, dir_idx, type_idx = self.decode_action(action)
+
+        color = k.Color.RED if player == 1 else k.Color.YELLOW
+        direction = self.directions[dir_idx]
+        t_type = self.types[type_idx]
+
+        return k.Decision(
+            color,
+            k.TriangleID(k.SquareCoord(int(x), int(y)), direction),
+            t_type
+        )
+
+    def action_to_js_move(self, action, player):
+        x, y, dir_idx, type_idx = self.decode_action(action)
+
+        color = "R" if player == 1 else "Y"
+        direction = ["N", "S", "E", "W"][dir_idx]
+
+        return (
+                color
+                + chr(int(x))
+                + chr(int(y))
+                + direction
+                + str(int(type_idx))
+        )

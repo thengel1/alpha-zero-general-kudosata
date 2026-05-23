@@ -234,9 +234,16 @@ class Coach():
 
             accepted = False
 
-            if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:
+            if i == 1:
+                log.info('ACCEPTING FIRST MODEL AS INITIAL BASELINE')
+                accepted = True
+                self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i))
+                self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pth.tar')
+
+            elif pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:
                 log.info('REJECTING NEW MODEL')
                 self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')
+
             else:
                 log.info('ACCEPTING NEW MODEL')
                 accepted = True
@@ -322,7 +329,7 @@ class Coach():
 
         data = {
             "game": "kudosata",
-            "board_size": "small",
+            "board_size": str(self.game.board_size),
             "steps": steps,
             "result": result,
             "moves": moves

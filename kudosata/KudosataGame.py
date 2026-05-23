@@ -478,7 +478,7 @@ class KudosataGame(Game):
         x, y, dir_idx, type_idx = self.decode_action(action)
 
         color = "R" if player == 1 else "Y"
-        direction = ["N", "S", "E", "W"][dir_idx]
+        direction = ["N", "E", "W", "S"][dir_idx]
 
         return (
                 color

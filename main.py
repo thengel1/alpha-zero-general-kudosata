@@ -2,6 +2,8 @@ import logging
 
 import coloredlogs
 
+import os
+
 from Coach import Coach
 from kudosata.KudosataGame import KudosataGame as Game
 from kudosata.NNetWrapper import NNetWrapper as nn
@@ -12,21 +14,23 @@ log = logging.getLogger(__name__)
 coloredlogs.install(level='INFO')  # Change this to DEBUG to see more info.
 
 args = dotdict({
-    'numIters': 4,
-    'numEps': 100,              # Number of complete self-play games to simulate during a new iteration.
-    'tempThreshold': 30,        #
-    'updateThreshold': 0.55,     # During arena playoff, new neural net will be accepted if threshold or more of games are won.
-    'maxlenOfQueue': 100000,    # Number of game examples to train the neural networks.
-    'numMCTSSims': 25,          # Number of games moves for MCTS to simulate.
-    'arenaCompare': 0,         # Number of games to play during arena play to determine if new net will be accepted.
-    'cpuct': 1.25,
-    'maxEpisodeSteps': 25,
+    'numIters': 2,
+    'numEps': 12,              # Number of complete self-play games to simulate during a new iteration.
+    'tempThreshold': 20,        #
+    'updateThreshold': 0.50,     # During arena playoff, new neural net will be accepted if threshold or more of games are won.
+    'maxlenOfQueue': 200000,    # Number of game examples to train the neural networks.
+    'numMCTSSims': 250,          # Number of games moves for MCTS to simulate.
+    'arenaCompare': 10,         # Number of games to play during arena play to determine if new net will be accepted.
+    'cpuct': 1.75,
+    'maxEpisodeSteps': 90,
 
 
     'checkpoint': './temp/',
-    'load_model': True,
+    'load_model': True
+    ,
     'load_folder_file': ('./temp/','best.pth.tar'),
-    'numItersForTrainExamplesHistory': 20,
+    'numItersForTrainExamplesHistory': 8,
+    'numWorkers': int(os.environ.get("AZ_NUM_WORKERS", "1")),
 
 })
 

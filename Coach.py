@@ -4,6 +4,7 @@ import sys
 from collections import deque
 from pickle import Pickler, Unpickler
 from random import shuffle
+from multiprocessing import Pool
 
 import numpy as np
 from tqdm import tqdm
@@ -20,6 +21,43 @@ log = logging.getLogger(__name__)
 # sys.path.append('.')
 # from kudosata import openxum_kudosata as k
 
+def selfplay_worker(worker_data):
+    from utils import dotdict
+    from kudosata.KudosataGame import KudosataGame as Game
+    from kudosata.NNetWrapper import NNetWrapper as NNet
+    import torch
+
+    args_dict, checkpoint_folder, checkpoint_file, num_eps = worker_data
+
+    torch.set_num_threads(1)
+
+    args = dotdict(args_dict)
+    args.disable_visual = True
+
+    game = Game()
+    nnet = NNet(game)
+    nnet.load_checkpoint(checkpoint_folder, checkpoint_file)
+
+    coach = Coach(game, nnet, args)
+
+    all_examples = []
+    episode_lengths = []
+    natural_ends = 0
+    forced_draws = 0
+
+    for _ in range(num_eps):
+        coach.mcts = MCTS(game, nnet, args)
+        examples, info = coach.executeEpisode()
+
+        all_examples.extend(examples)
+        episode_lengths.append(info["length"])
+
+        if info["forced_draw"]:
+            forced_draws += 1
+        else:
+            natural_ends += 1
+
+    return all_examples, episode_lengths, natural_ends, forced_draws
 
 class Coach():
     """
@@ -186,17 +224,57 @@ class Coach():
             if not self.skipFirstSelfPlay or i > 1:
                 iterationTrainExamples = deque([], maxlen=self.args.maxlenOfQueue)
 
-                for _ in tqdm(range(self.args.numEps), desc="Self Play"):
-                    self.mcts = MCTS(self.game, self.nnet, self.args)  # reset search tree
-                    examples, info = self.executeEpisode()
-                    iterationTrainExamples += examples
+                num_workers = getattr(self.args, "numWorkers", 1)
 
-                    episode_lengths.append(info["length"])
+                if num_workers <= 1:
+                    for _ in tqdm(range(self.args.numEps), desc="Self Play"):
+                        self.mcts = MCTS(self.game, self.nnet, self.args)
+                        examples, info = self.executeEpisode()
+                        iterationTrainExamples += examples
 
-                    if info["forced_draw"]:
-                        forced_draws += 1
-                    else:
-                        natural_ends += 1
+                        episode_lengths.append(info["length"])
+
+                        if info["forced_draw"]:
+                            forced_draws += 1
+                        else:
+                            natural_ends += 1
+
+                else:
+                    self.nnet.save_checkpoint(
+                        folder=self.args.checkpoint,
+                        filename="selfplay_current.pth.tar"
+                    )
+
+                    eps_per_worker = self.args.numEps // num_workers
+                    remaining = self.args.numEps % num_workers
+
+                    jobs = []
+
+                    for worker_id in range(num_workers):
+                        worker_eps = eps_per_worker + (1 if worker_id < remaining else 0)
+
+                        if worker_eps > 0:
+                            jobs.append((
+                                dict(self.args),
+                                self.args.checkpoint,
+                                "selfplay_current.pth.tar",
+                                worker_eps
+                            ))
+
+                    log.info(f"Running parallel self-play with {len(jobs)} workers")
+
+                    with Pool(processes=len(jobs)) as pool:
+                        results = list(tqdm(
+                            pool.imap_unordered(selfplay_worker, jobs),
+                            total=len(jobs),
+                            desc="Parallel Self Play"
+                        ))
+
+                    for examples, lengths, n_ends, f_draws in results:
+                        iterationTrainExamples += examples
+                        episode_lengths.extend(lengths)
+                        natural_ends += n_ends
+                        forced_draws += f_draws
 
                 self.trainExamplesHistory.append(iterationTrainExamples)
                 self.saveTrainExamples(i)
@@ -240,7 +318,7 @@ class Coach():
                 self.nnet.save_checkpoint(folder=self.args.checkpoint, filename=self.getCheckpointFile(i))
                 self.nnet.save_checkpoint(folder=self.args.checkpoint, filename='best.pth.tar')
 
-            elif pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:
+            if pwins + nwins == 0 or float(nwins) / (pwins + nwins) < self.args.updateThreshold:
                 log.info('REJECTING NEW MODEL')
                 self.nnet.load_checkpoint(folder=self.args.checkpoint, filename='temp.pth.tar')
 
@@ -321,6 +399,9 @@ class Coach():
         import json
         import time
         import os
+
+        if "disable_visual" in self.args and self.args["disable_visual"]:
+            return
 
         folder = os.path.join(self.args.checkpoint, "visual_selfplay")
         os.makedirs(folder, exist_ok=True)

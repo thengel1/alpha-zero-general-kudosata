@@ -10,9 +10,9 @@ from NeuralNet import NeuralNet
 
 class NNetWrapper(NeuralNet):
     def __init__(self, game):
-        self.args = type('Args', (), {'lr': 0.0005, 'dropout': 0.3,'epochs': 5,
+        self.args = type('Args', (), {'lr': 0.0001, 'dropout': 0.0,'epochs': 5,
                                       'batch_size': 64, 'cuda': torch.cuda.is_available(),
-                                      'num_channels': 128, 'depth': 6})()
+                                      'num_channels': 128, 'depth': 8})()
         self.nnet = nnet(game, self.args)
         if self.args.cuda:
             self.nnet.cuda()

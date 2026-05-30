@@ -14,7 +14,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CHECKPOINT_DIR = os.path.join(BASE_DIR, "temp")
 CHECKPOINT_FILE = "best.pth.tar"
 
-BOARD_SIZE = k.BoardSize.MEDIUM
+BOARD_SIZE = k.BoardSize.SMALL
 
 game = KudosataGame(BOARD_SIZE)
 nnet = NNetWrapper(game)
@@ -50,7 +50,7 @@ def health():
     return jsonify({
         "status": "ok",
         "model_loaded": MODEL_LOADED,
-        "board_size": "MEDIUM"
+        "board_size": "SMALL"
     })
 
 

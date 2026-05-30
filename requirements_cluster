@@ -1,0 +1,5 @@
+numpy==1.26.4
+torch==2.2.2
+tqdm==4.66.4
+coloredlogs==15.0.1
+pybind11==2.12.0
